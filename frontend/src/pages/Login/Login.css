@@ -1,0 +1,28 @@
+.login-page {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #1a2c42 0%, #0d1b2a 100%);
+}
+
+.login-card {
+    max-width: 450px;
+    border-radius: 15px;
+}
+
+.text-navy {
+    color: #1a2c42;
+}
+
+.login-card .form-control:focus {
+    border-color: #1a2c42;
+    box-shadow: 0 0 0 0.25rem rgba(26, 44, 66, 0.25);
+}
+
+.login-card .btn-primary {
+    background-color: #1a2c42;
+    border-color: #1a2c42;
+}
+
+.login-card .btn-primary:hover {
+    background-color: #0d1b2a;
+    border-color: #0d1b2a;
+}
