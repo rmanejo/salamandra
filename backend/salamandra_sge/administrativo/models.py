@@ -9,6 +9,8 @@ class Funcionario(models.Model):
         ('DEFINITIVO', 'Definitivo'),
     ]
     SECTOR_CHOICES = [
+        ('DIRECAO', 'Direção/Gestão'),
+        ('PEDAGOGICO', 'Área Pedagógica'),
         ('SECRETARIA', 'Secretaria'),
         ('RH', 'Recursos Humanos'),
         ('APOIO', 'Apoio Administrativo'),
@@ -19,7 +21,7 @@ class Funcionario(models.Model):
     
     anos_servico = models.PositiveIntegerField(default=0)
     tipo_provimento = models.CharField(max_length=20, choices=PROVIMENTO_CHOICES, default='PROVISORIO')
-    cargo = models.CharField(max_length=100)
+    cargo = models.CharField(max_length=100, null=True, blank=True)
     sector = models.CharField(max_length=50, choices=SECTOR_CHOICES, null=True, blank=True)
 
     class Meta:

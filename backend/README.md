@@ -154,7 +154,10 @@ cp .env.example .env
 ### 2. Iniciar Ambiente de Desenvolvimento
 Este comando inicia o Django, Postgres, Redis, Celery Worker e pgAdmin:
 ```bash
-docker-compose --profile development up -d --build
+cd backend
+ docker compose --profile development down
+
+docker compose --profile development up -d --build
 ```
 
 ### 3. Acessar os Serviços
@@ -164,19 +167,19 @@ docker-compose --profile development up -d --build
 ### 4. Comandos de Desenvolvimento Úteis
 ```bash
 # Ver logs de todos os serviços
-docker-compose --profile development logs -f
+docker compose --profile development logs -f
 
 # Criar migrações
-docker-compose --profile development exec develop python manage.py makemigrations
+docker compose --profile development exec develop python manage.py makemigrations
 
 # Aplicar migrações
-docker-compose --profile development exec develop python manage.py migrate
+docker compose --profile development exec develop python manage.py migrate
 
 # Executar testes
-docker-compose --profile development exec develop python manage.py test
+docker compose --profile development exec develop python manage.py test
 
 # Criar Superusuário
-docker-compose --profile development exec develop python manage.py createsuperuser
+docker compose --profile development exec develop python manage.py createsuperuser
 ```
 
 ---

@@ -5,9 +5,13 @@ import api from '../services/api';
 interface User {
     id: number;
     email: string;
+    first_name: string;
+    last_name: string;
     role: string;
     role_display: string;
-    school_name: string;
+    school_name?: string;
+    school_blocked?: boolean;
+    district_name?: string;
 }
 
 interface AuthContextType {
@@ -45,9 +49,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const userData: User = {
                 id: response.data.id,
                 email: response.data.email,
+                first_name: response.data.first_name,
+                last_name: response.data.last_name,
                 role: response.data.role,
                 role_display: response.data.role_display,
-                school_name: response.data.school_name
+                school_name: response.data.school_name,
+                school_blocked: response.data.school_blocked,
+                district_name: response.data.district_name
             };
 
             // Store token if provided, otherwise use a session identifier

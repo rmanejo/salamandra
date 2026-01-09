@@ -56,3 +56,21 @@ class ProfileView(views.APIView):
     def get(self, request):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
+
+class VerifyPasswordView(views.APIView):
+    """
+    Verifica se a senha fornecida corresponde à do usuário autenticado.
+    Usada para autenticação secundária em ações sensíveis.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        password = request.data.get('password')
+        if not password:
+            return Response({"error": "Senha não fornecida"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = authenticate(email=request.user.email, password=password)
+        if user:
+            return Response({"status": "success", "message": "Senha verificada"}, status=status.HTTP_200_OK)
+        
+        return Response({"error": "Senha incorrecta"}, status=status.HTTP_403_FORBIDDEN)

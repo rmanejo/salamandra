@@ -6,15 +6,15 @@ class IsAdminSistema(permissions.BasePermission):
 
 class IsAdminEscola(permissions.BasePermission):
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'ADMIN_ESCOLA'
+        return request.user.is_authenticated and request.user.role in ['ADMIN_ESCOLA', 'ADMIN_SISTEMA']
 
 class IsDAP(permissions.BasePermission):
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'DAP'
+        return request.user.is_authenticated and request.user.role in ['DAP', 'DAE']
 
 class IsDAE(permissions.BasePermission):
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'DAE'
+        return request.user.is_authenticated and request.user.role in ['DAE', 'DAP']
 
 class IsSDEJT(permissions.BasePermission):
     """Permissão para funcionários do Serviço Distrital (Nível 1)."""

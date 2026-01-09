@@ -73,31 +73,24 @@ class SchoolCreateWithUsersSerializer(serializers.ModelSerializer):
                     last_name="Automático"
                 )
 
-                if role == 'DAP':
+                # Todos os utilizadores da escola são Funcionários (GRH)
+                Funcionario.objects.create(
+                    user=user,
+                    school=school,
+                    tipo_provimento='DEFINITIVO',
+                    cargo=role.replace('_', ' ').capitalize() if role != 'ADMINISTRATIVO' else 'Chefe da Secretaria',
+                    sector='DIRECAO' if role in ['ADMIN_ESCOLA', 'DAP'] else 'SECRETARIA'
+                )
+
+                # DAP e AdminDocente são também Professores
+                if role == 'DAP' or (role == 'ADMIN_ESCOLA' and admin_is_teacher):
                     Professor.objects.create(
                         user=user,
                         school=school,
                         tipo_provimento='DEFINITIVO',
                         formacao='N1'
                     )
-                else:
-                    # Todos cargos não-DAP são Funcionários
-                    Funcionario.objects.create(
-                        user=user,
-                        school=school,
-                        tipo_provimento='DEFINITIVO',
-                        cargo='Director' if role == 'ADMIN_ESCOLA' else 'Chefe da Secretaria',
-                        sector='SECRETARIA'
-                    )
-                    
-                    # Se o Admin for também Professor, criamos o segundo perfil
-                    if role == 'ADMIN_ESCOLA' and admin_is_teacher:
-                        Professor.objects.create(
-                            user=user,
-                            school=school,
-                            tipo_provimento='DEFINITIVO',
-                            formacao='N1'
-                        )
+            return school
 
 
 class DistrictNestedSerializer(serializers.ModelSerializer):

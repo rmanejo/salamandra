@@ -10,14 +10,28 @@ const Login: React.FC = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
-    const { login, isAuthenticated } = useAuth();
+    const { login, isAuthenticated, user } = useAuth();
+
+    const getDashboardPath = (role: string) => {
+        switch (role) {
+            case 'ADMIN_SISTEMA': return '/admin';
+            case 'SDEJT_RAP':
+            case 'SDEJT_REG': return '/sdejt';
+            case 'ADMIN_ESCOLA': return '/director';
+            case 'DAP': return '/dap';
+            case 'DAE': return '/dae';
+            case 'PROFESSOR': return '/professor';
+            case 'ADMINISTRATIVO': return '/administrativo';
+            default: return '/dashboard';
+        }
+    };
 
     // Redirect if already authenticated
     useEffect(() => {
-        if (isAuthenticated) {
-            navigate('/dashboard');
+        if (isAuthenticated && user) {
+            navigate(getDashboardPath(user.role));
         }
-    }, [isAuthenticated, navigate]);
+    }, [isAuthenticated, user, navigate]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -26,9 +40,9 @@ const Login: React.FC = () => {
 
         try {
             await login(email, password);
-            navigate('/dashboard');
-        } catch (err) {
-            setError('E-mail ou senha inválidos.');
+        } catch (err: unknown) {
+            const error = err as Error;
+            setError(error.message || 'E-mail ou senha inválidos.');
         } finally {
             setLoading(false);
         }

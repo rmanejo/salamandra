@@ -1,5 +1,5 @@
 from django.db import transaction
-from .models import Aluno, Turma
+from .models import Aluno, Turma, Classe, Disciplina
 
 class FormacaoTurmaService:
     """
@@ -147,6 +147,39 @@ class FormacaoTurmaService:
             "disciplinas": todas
         }
 
+    @staticmethod
+    @transaction.atomic
+    def seed_classes(school):
+        """
+        Cria as classes baseadas no tipo de escola.
+        """
+        classes_map = {
+            'PRIMARIA': [f'{i}ª Classe' for i in range(1, 7)],
+            'SECUNDARIA_1': [f'{i}ª Classe' for i in range(7, 10)],
+            'SECUNDARIA_2': [f'{i}ª Classe' for i in range(10, 13)],
+            'SECUNDARIA_COMPLETA': [f'{i}ª Classe' for i in range(7, 13)],
+        }
+        
+        nomes_classes = classes_map.get(school.school_type, [])
+        criadas = 0
+        existentes = 0
+        
+        for nome in nomes_classes:
+            classe, created = Classe.objects.get_or_create(
+                school=school,
+                nome=nome
+            )
+            if created:
+                criadas += 1
+            else:
+                existentes += 1
+                
+        return {
+            "status": "success",
+            "message": f"Seeding de Classes concluído: {criadas} novas criadas, {existentes} existentes.",
+            "classes": nomes_classes
+        }
+
 class DAEService:
     """
     Serviço para o Director Adjunto de Escola (DAE).
@@ -175,6 +208,10 @@ class DAEService:
                 return {"status": "error", "message": "Turma não encontrada."}
 
         elif cargo_tipo == 'CC':
+            # Um CC só pode ser duma classe e uma classe só um CC (Exclusividade Mútua)
+            if CoordenadorClasse.objects.filter(professor=professor, ano_letivo=ano_letivo).exclude(classe_id=entidade_id).exists():
+                return {"status": "error", "message": "Este professor já é Coordenador de outra Classe."}
+            
             try:
                 classe = Classe.objects.get(id=entidade_id, school=school)
                 CoordenadorClasse.objects.update_or_create(
@@ -188,8 +225,16 @@ class DAEService:
                 return {"status": "error", "message": "Classe não encontrada."}
 
         elif cargo_tipo == 'DD':
+            # Só pode ser DD da disciplina que lecciona
             try:
                 disciplina = Disciplina.objects.get(id=entidade_id, school=school)
+                if not professor.disciplinas.filter(id=disciplina.id).exists():
+                    return {"status": "error", "message": f"O professor não lecciona a disciplina {disciplina.nome}."}
+                
+                # Um DD só pode ser duma disciplina e uma disciplina só um DD (Exclusividade Mútua)
+                if DelegadoDisciplina.objects.filter(professor=professor, ano_letivo=ano_letivo).exclude(disciplina_id=entidade_id).exists():
+                    return {"status": "error", "message": "Este professor já é Delegado de outra Disciplina."}
+
                 DelegadoDisciplina.objects.update_or_create(
                     disciplina=disciplina,
                     school=school,
@@ -301,7 +346,19 @@ class DAEService:
                 "percentagem": (aprovados / total_alunos * 100) if total_alunos > 0 else 0
             })
 
+        # Média Geral (Aproveitamento Global) - % de alunos com média >= 10
+        alunos_ativos = Aluno.objects.filter(school=school, ativo=True)
+        total_ativos = alunos_ativos.count()
+        aprovados_geral = 0
+        for aluno in alunos_ativos:
+            media_al = Nota.objects.filter(aluno=aluno).aggregate(Avg('valor'))['valor__avg']
+            if media_al and media_al >= 10:
+                aprovados_geral += 1
+        
+        media_geral = (aprovados_geral / total_ativos * 100) if total_ativos > 0 else 0
+
         return {
             "por_classe": stats_classe,
-            "por_turma": stats_turma
+            "por_turma": stats_turma,
+            "media_geral": float(media_geral)
         }

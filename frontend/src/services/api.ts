@@ -17,7 +17,7 @@ const getCsrfToken = async (): Promise<string | null> => {
     if (csrfToken) {
         return csrfToken;
     }
-    
+
     try {
         const response = await api.get('/accounts/csrf-token/');
         csrfToken = response.data.csrfToken;
@@ -85,24 +85,86 @@ export const authService = {
         const response = await api.get('/accounts/me/');
         return response.data;
     },
-    logout: () => {
-        localStorage.removeItem('token');
+    changePassword: async (payload: { old_password: string; new_password: string; confirm_password: string }) => {
+        const response = await api.post('/accounts/change_password/', payload);
+        return response.data;
+    },
+    logout: async () => {
+        try {
+            await api.post('/accounts/logout/');
+        } catch (error) {
+            console.error('Logout failed:', error);
+        } finally {
+            localStorage.removeItem('token');
+            csrfToken = null;
+        }
+    },
+    verifyPassword: async (password: string) => {
+        const response = await api.post('/accounts/verify-password/', { password });
+        return response.data;
     },
 };
 
 export const institutionalService = {
-    getDashboard: async () => {
+    getDirectorDashboard: async () => {
         const response = await api.get('/instituicoes/director/dashboard/');
         return response.data;
     },
-    toggleSchoolLock: async (lock: boolean) => {
-        const response = await api.post('/instituicoes/director/bloquear_escola/', { bloquear: lock });
+    toggleSchoolLock: async (lock?: boolean) => {
+        const payload = lock !== undefined ? { bloquear: lock } : {};
+        const response = await api.post('/instituicoes/director/bloquear_escola/', payload);
         return response.data;
     },
-    getSchoolStatus: async () => {
-        const response = await api.get('/instituicoes/director/dashboard/');
+    getSchools: async (params?: any) => {
+        const response = await api.get('/instituicoes/escolas/', { params });
         return response.data;
     },
+    setupSchool: async (schoolData: any) => {
+        const response = await api.post('/instituicoes/escolas/', schoolData);
+        return response.data;
+    },
+};
+
+export const daeService = {
+    getStatsAlunos: async () => {
+        const response = await api.get('/academico/dae/estatisticas_alunos/');
+        return response.data;
+    },
+    getStatsDisciplinas: async () => {
+        const response = await api.get('/academico/dae/estatisticas_disciplinas/');
+        return response.data;
+    },
+    getStatsAproveitamento: async () => {
+        const response = await api.get('/academico/dae/estatisticas_aproveitamento/');
+        return response.data;
+    },
+    atribuirCargo: async (data: any) => {
+        const response = await api.post('/academico/dae/atribuir_cargo/', data);
+        return response.data;
+    },
+};
+
+export const administrativeService = {
+    getStaffMembers: async () => {
+        const response = await api.get('/administrativo/funcionarios/');
+        return response.data;
+    },
+    registerStaff: async (data: any) => {
+        const response = await api.post('/administrativo/funcionarios/registar/', data);
+        return response.data;
+    },
+    deleteStaff: async (id: number) => {
+        const response = await api.delete(`/administrativo/funcionarios/${id}/`);
+        return response.data;
+    },
+    updateStaff: async (id: number, data: any) => {
+        const response = await api.put(`/administrativo/funcionarios/${id}/`, data);
+        return response.data;
+    },
+    getDisciplinas: async () => {
+        const response = await api.get('/instituicoes/director/get_disciplinas/');
+        return response.data;
+    }
 };
 
 export const academicService = {
@@ -118,8 +180,20 @@ export const academicService = {
         const response = await api.patch(`/academico/alunos/${id}/`, studentData);
         return response.data;
     },
+    deleteStudent: async (id: number) => {
+        const response = await api.delete(`/academico/alunos/${id}/`);
+        return response.data;
+    },
     moveStudent: async (id: number, nova_turma_id: number) => {
         const response = await api.post(`/academico/alunos/${id}/mover_turma/`, { nova_turma_id });
+        return response.data;
+    },
+    transferStudent: async (id: number, transferData: { escola_destino: string; motivo?: string }) => {
+        const response = await api.post(`/academico/alunos/${id}/transferir/`, transferData);
+        return response.data;
+    },
+    getAcademicStatus: async (id: number) => {
+        const response = await api.get(`/academico/alunos/${id}/situacao_academica/`);
         return response.data;
     },
     getTurmas: async (params?: any) => {
@@ -130,13 +204,33 @@ export const academicService = {
         const response = await api.get('/academico/disciplinas/', { params });
         return response.data;
     },
+    seedPrimaria: async () => {
+        const response = await api.post('/academico/disciplinas/seed_primaria/');
+        return response.data;
+    },
+    seedSecundaria: async () => {
+        const response = await api.post('/academico/disciplinas/seed_secundaria/');
+        return response.data;
+    },
     getClasses: async () => {
-        // Assuming classes are returned with turmas or we need a separate endpoint
-        const response = await api.get('/academico/turmas/');
+        const response = await api.get('/academico/classes/');
         return response.data;
     },
     formarTurmas: async (data: { classe_id: number; ano_letivo: number; min_alunos?: number; max_alunos?: number }) => {
         const response = await api.post('/academico/turmas/formar_turmas/', data);
+        return response.data;
+    },
+    // Professores
+    getTeachers: async (params?: any) => {
+        const response = await api.get('/academico/professores/', { params });
+        return response.data;
+    },
+    updateTeacher: async (id: number, teacherData: any) => {
+        const response = await api.patch(`/academico/professores/${id}/`, teacherData);
+        return response.data;
+    },
+    setupAcademico: async () => {
+        const response = await api.post('/academico/classes/setup_academico/');
         return response.data;
     },
 };
@@ -163,6 +257,36 @@ export const evaluationService = {
 export const reportService = {
     getClassReport: async (params: { turma_id: number; disciplina_id: number }) => {
         const response = await api.get('/academico/relatorios/pauta_turma/', { params });
+        return response.data;
+    },
+    getSchoolSummary: async () => {
+        const response = await api.get('/academico/relatorios/resumo_escola/');
+        return response.data;
+    },
+};
+
+export const academicRoleService = {
+    getDTMinhaTurma: async () => {
+        const response = await api.get('/academico/director-turma/minha_turma/');
+        return response.data;
+    },
+    getDTAlunos: async () => {
+        const response = await api.get('/academico/director-turma/alunos/');
+        return response.data;
+    },
+    getCCResumoClasse: async () => {
+        const response = await api.get('/academico/coordenador-classe/resumo_classe/');
+        return response.data;
+    },
+    getDDResumoDisciplina: async () => {
+        const response = await api.get('/academico/delegado-disciplina/resumo_disciplina/');
+        return response.data;
+    },
+};
+
+export const staffService = {
+    registerStaff: async (staffData: any) => {
+        const response = await api.post('/administrativo/funcionarios/registar/', staffData);
         return response.data;
     },
 };

@@ -23,7 +23,11 @@ const Topbar: React.FC = () => {
                             <FaBell size={20} />
                         </Nav.Link>
                         <Dropdown align="end">
-                            <Dropdown.Toggle variant="link" id="dropdown-user" className="text-decoration-none text-dark d-flex align-items-center gap-2 p-0">
+                            <Dropdown.Toggle
+                                variant="link"
+                                id="dropdown-user"
+                                className="text-decoration-none text-dark d-flex align-items-center gap-2 p-0"
+                            >
                                 <div className="text-end d-none d-md-block">
                                     <div className="fw-bold small">{user?.role_display || 'Utilizador'}</div>
                                     <div className="text-muted smaller" style={{ fontSize: '0.75rem' }}>{user?.school_name || 'Escola'}</div>
@@ -31,8 +35,12 @@ const Topbar: React.FC = () => {
                                 <FaUserCircle size={32} className="text-secondary" />
                             </Dropdown.Toggle>
                             <Dropdown.Menu className="shadow border-0">
-                                <Dropdown.Item href="#profile">Perfil</Dropdown.Item>
-                                <Dropdown.Item href="#settings">Configurações</Dropdown.Item>
+                                <Dropdown.Item onClick={() => navigate('/meu-perfil')}>
+                                    Perfil
+                                </Dropdown.Item>
+                                <Dropdown.Item onClick={() => navigate('/configuracoes-escola')}>
+                                    Configurações da Escola
+                                </Dropdown.Item>
                                 <Dropdown.Divider />
                                 <Dropdown.Item onClick={handleLogout} className="text-danger">Sair</Dropdown.Item>
                             </Dropdown.Menu>

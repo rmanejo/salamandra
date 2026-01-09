@@ -25,6 +25,9 @@ class Professor(models.Model):
 
     # Para Escolas Primárias (Associação com classes)
     classes_leccionadas = models.ManyToManyField('Classe', blank=True, related_name='professores_alocados')
+    
+    # Disciplinas que o professor lecciona (Associação geral)
+    disciplinas = models.ManyToManyField('Disciplina', blank=True, related_name='professores')
 
     class Meta:
         verbose_name = "Professor"
@@ -126,7 +129,7 @@ class DirectorTurma(models.Model):
     class Meta:
         verbose_name = "Director de Turma"
         verbose_name_plural = "Directores de Turma"
-        unique_together = ('professor', 'ano_letivo') # Um prof só é DT de uma turma por ano? Ou pode ser de várias? Geralmente uma.
+        # Permite que um professor seja DT de várias turmas
 
     def __str__(self):
         return f"DT {self.professor} -> {self.turma}"
@@ -142,7 +145,10 @@ class CoordenadorClasse(models.Model):
     class Meta:
         verbose_name = "Coordenador de Classe"
         verbose_name_plural = "Coordenadores de Classe"
-        unique_together = ('classe', 'school', 'ano_letivo') # Um coordenador por classe/escola/ano
+        unique_together = (
+            ('classe', 'school', 'ano_letivo'),     # Um coordenador por classe
+            ('professor', 'ano_letivo')            # Um professor coordena apenas uma classe
+        )
 
     def __str__(self):
         return f"CC {self.professor} -> {self.classe}"
@@ -158,7 +164,10 @@ class DelegadoDisciplina(models.Model):
     class Meta:
         verbose_name = "Delegado de Disciplina"
         verbose_name_plural = "Delegados de Disciplina"
-        unique_together = ('disciplina', 'school', 'ano_letivo')
+        unique_together = (
+            ('disciplina', 'school', 'ano_letivo'), # Um delegado por disciplina
+            ('professor', 'ano_letivo')            # Um professor delegado duma única disciplina
+        )
 
     def __str__(self):
         return f"DD {self.professor} -> {self.disciplina}"

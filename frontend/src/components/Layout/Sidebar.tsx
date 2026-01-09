@@ -20,17 +20,59 @@ const Sidebar: React.FC = () => {
     const navigate = useNavigate();
     const { logout, user } = useAuth();
 
-    const isAdminSistema = user?.role === 'ADMIN_SISTEMA';
-
     const menuItems = [
-        { path: '/dashboard', icon: <FaThLarge />, label: 'Dashboard' },
-        { path: '/alunos', icon: <FaUserGraduate />, label: 'Alunos' },
-        { path: '/professores', icon: <FaChalkboardTeacher />, label: 'Professores' },
-        { path: '/avaliacoes', icon: <FaFileAlt />, label: 'Avaliações' },
-        { path: '/faltas', icon: <FaCalendarTimes />, label: 'Faltas' },
-        { path: '/relatorios', icon: <FaChartBar />, label: 'Relatórios' },
-        ...(isAdminSistema ? [{ path: '/admin', icon: <FaShieldAlt />, label: 'Admin Geral' }] : []),
-        { path: '/configuracoes', icon: <FaCog />, label: 'Configurações' },
+        // Dashboard (Dinâmico baseado na role)
+        {
+            path: user?.role === 'ADMIN_SISTEMA' ? '/admin' :
+                user?.role?.startsWith('SDEJT') ? '/sdejt' :
+                    user?.role === 'ADMIN_ESCOLA' ? '/director' :
+                        (user?.role === 'DAP' || user?.role === 'DAE') ? '/dap' :
+                            user?.role === 'PROFESSOR' ? '/professor' :
+                                user?.role === 'ADMINISTRATIVO' ? '/administrativo' : '/dashboard',
+            icon: <FaThLarge />,
+            label: 'Dashboard'
+        },
+
+        // ADMIN_SISTEMA
+        ...(user?.role === 'ADMIN_SISTEMA' ? [
+            { path: '/admin/distritos', icon: <FaShieldAlt />, label: 'Distritos' },
+            { path: '/admin/escolas', icon: <FaShieldAlt />, label: 'Escolas' },
+        ] : []),
+
+        // SDEJT
+        ...(user?.role?.startsWith('SDEJT') ? [
+            { path: '/sdejt/escolas', icon: <FaShieldAlt />, label: 'Escolas do Distrito' },
+        ] : []),
+
+        // ADMIN_ESCOLA
+        ...(user?.role === 'ADMIN_ESCOLA' ? [
+            { path: '/director/recursos', icon: <FaChalkboardTeacher />, label: 'Recursos Humanos' },
+            { path: '/director/configuracoes', icon: <FaCog />, label: 'Configurações' },
+        ] : []),
+
+        // DAE/DAP (Pedagógico)
+        ...((user?.role === 'DAE' || user?.role === 'DAP') ? [
+            { path: user.role === 'DAE' ? '/dae/cargos' : '/dap/professores', icon: <FaChalkboardTeacher />, label: 'Gestão de Professores' },
+            { path: '/director/recursos', icon: <FaChalkboardTeacher />, label: 'Recursos Humanos' },
+        ] : []),
+
+        // PROFESSOR
+        ...(user?.role === 'PROFESSOR' ? [
+            { path: '/professor/notas', icon: <FaChartBar />, label: 'Lançar Notas' },
+            { path: '/professor/faltas', icon: <FaCalendarTimes />, label: 'Lançar Faltas' },
+        ] : []),
+
+        // ADMINISTRATIVO
+        ...(user?.role === 'ADMINISTRATIVO' ? [
+            { path: '/admin-escolar/alunos', icon: <FaUserGraduate />, label: 'Gestão de Alunos' },
+            { path: '/admin-escolar/formar-turmas', icon: <FaThLarge />, label: 'Formar Turmas' },
+            { path: '/admin-escolar/disciplinas', icon: <FaFileAlt />, label: 'Disciplinas' },
+            { path: '/admin-escolar/funcionarios', icon: <FaChalkboardTeacher />, label: 'Funcionários' },
+        ] : []),
+
+        // ITENS COMUNS
+        { path: '/relatorios', icon: <FaFileAlt />, label: 'Relatórios' },
+        { path: '/meu-perfil', icon: <FaUserGraduate />, label: 'Meu Perfil' },
     ];
 
     const handleLogout = () => {

@@ -2,7 +2,10 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from salamandra_sge.accounts.permissions import IsAdministrativo, IsDAE, IsSchoolNotBlocked, IsDT, IsCC, IsDD, IsProfessor
+from salamandra_sge.accounts.permissions import (
+    IsAdminEscola, IsDAP, IsAdministrativo, IsDAE, IsSchoolNotBlocked, 
+    IsDT, IsCC, IsDD, IsProfessor
+)
 from .models import Aluno, Turma, Classe, Disciplina, Professor, DirectorTurma, CoordenadorClasse, DelegadoDisciplina
 from .services import FormacaoTurmaService, DAEService
 from .academic_role_service import AcademicRoleService
@@ -10,9 +13,11 @@ from .serializers import (
     DisciplinaSerializer, 
     ProfessorCargoAssignmentSerializer,
     AlunoSerializer,
+    ProfessorSerializer,
     TransferenciaAlunoSerializer,
     MovimentacaoTurmaSerializer,
-    TurmaSerializer
+    TurmaSerializer,
+    ClasseSerializer
 )
 
 class AlunoViewSet(viewsets.ModelViewSet):
@@ -21,7 +26,7 @@ class AlunoViewSet(viewsets.ModelViewSet):
     """
     queryset = Aluno.objects.all()
     serializer_class = AlunoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminEscola | IsDAP | IsAdministrativo]
 
     def get_queryset(self):
         user = self.request.user
@@ -65,11 +70,76 @@ class AlunoViewSet(viewsets.ModelViewSet):
                 return Response({"error": "Turma destino não encontrada."}, status=status.HTTP_404_NOT_FOUND)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['get'])
+    def situacao_academica(self, request, pk=None):
+        aluno = self.get_object()
+        from salamandra_sge.avaliacoes.models import Nota
+        from salamandra_sge.avaliacoes.services import AvaliacaoService
+        
+        # Get all disciplines for the student's current school
+        disciplinas = Disciplina.objects.filter(school=request.user.school)
+        
+        report = []
+        for disc in disciplinas:
+            disc_data = {
+                "disciplina_id": disc.id,
+                "disciplina_nome": disc.nome,
+                "trimesters": {}
+            }
+            
+            for tri in [1, 2, 3]:
+                notas = Nota.objects.filter(aluno=aluno, disciplina=disc, trimestre=tri)
+                acs_list = notas.filter(tipo='ACS').order_by('data_lancamento')[:3]
+                map_nota = notas.filter(tipo='MAP').first()
+                acp_nota = notas.filter(tipo='ACP').first()
+                
+                macs = AvaliacaoService.calculate_macs(acs_list, map_nota)
+                mt = None
+                com = ""
+                
+                if acp_nota:
+                    mt = AvaliacaoService.calculate_mt(macs, acp_nota.valor)
+                    com = AvaliacaoService.get_comportamento(mt)
+                
+                disc_data["trimesters"][tri] = {
+                    "acs": [float(n.valor) for n in acs_list],
+                    "map": float(map_nota.valor) if map_nota else None,
+                    "macs": float(macs),
+                    "acp": float(acp_nota.valor) if acp_nota else None,
+                    "mt": float(mt) if mt is not None else None,
+                    "com": com
+                }
+            
+            # MFD calculation
+            mts = [disc_data["trimesters"][t]["mt"] for t in [1, 2, 3] if disc_data["trimesters"][t]["mt"] is not None]
+            disc_data["mfd"] = float(sum(mts)/len(mts)) if mts else None
+            
+            report.append(disc_data)
+            
+        return Response(report, status=status.HTTP_200_OK)
+
+class ProfessorViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestão de professores.
+    """
+    queryset = Professor.objects.all()
+    serializer_class = ProfessorSerializer
+    permission_classes = [IsAuthenticated, IsSchoolNotBlocked]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.school:
+            return self.queryset.filter(school=user.school)
+        return self.queryset.none()
+
+    def perform_create(self, serializer):
+        serializer.save(school=self.request.user.school)
+
 class DAEViewSet(viewsets.ViewSet):
     """
     ViewSet para o Director Adjunto de Escola (DAE).
     """
-    permission_classes = [IsAuthenticated, IsDAE, IsSchoolNotBlocked]
+    permission_classes = [IsAuthenticated, IsDAE | IsDAP | IsAdminEscola | IsAdministrativo, IsSchoolNotBlocked]
 
     @action(detail=False, methods=['post'])
     def atribuir_cargo(self, request):
@@ -150,6 +220,50 @@ class TurmaViewSet(viewsets.ModelViewSet):
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
         
         return Response(result, status=status.HTTP_200_OK)
+
+
+class ClasseViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet para listagem de classes.
+    """
+    queryset = Classe.objects.all()
+    serializer_class = ClasseSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.school:
+            return self.queryset.filter(school=user.school)
+        return self.queryset.none()
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminEscola | IsDAP | IsAdministrativo])
+    def setup_academico(self, request):
+        """
+        Gera automaticamente as classes e disciplinas iniciais da escola.
+        """
+        school = request.user.school
+        
+        # 1. Seed Classes
+        res_classes = FormacaoTurmaService.seed_classes(school)
+        
+        # 2. Seed Disciplinas dependendo do tipo
+        if school.school_type == 'PRIMARIA':
+            res_disc = FormacaoTurmaService.seed_disciplinas_primaria(school)
+        else:
+            incluir_1 = school.school_type in ['SECUNDARIA_1', 'SECUNDARIA_COMPLETA']
+            incluir_2 = school.school_type in ['SECUNDARIA_2', 'SECUNDARIA_COMPLETA']
+            res_disc = FormacaoTurmaService.seed_disciplinas_secundaria(
+                school=school,
+                incluir_ciclo_1=incluir_1,
+                incluir_ciclo_2=incluir_2
+            )
+            
+        return Response({
+            "status": "success",
+            "message": "Estrutura académica inicial configurada com sucesso.",
+            "classes": res_classes['classes'],
+            "disciplinas": res_disc['disciplinas']
+        }, status=status.HTTP_201_CREATED)
 
 
 class DisciplinaViewSet(viewsets.ModelViewSet):

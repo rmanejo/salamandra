@@ -4,7 +4,9 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .models import School, DetalheEscola 
 from .serializers import SchoolCreateWithUsersSerializer, SchoolSerializer, DetalheEscolaSerializer
-from salamandra_sge.accounts.permissions import IsSDEJT, IsAdminSistema, IsAdminEscola
+from salamandra_sge.accounts.permissions import (
+    IsSDEJT, IsAdminSistema, IsAdminEscola, IsDAP, IsDAE, IsAdministrativo, IsSchoolNotBlocked
+)
 
 class SchoolViewSet(viewsets.ModelViewSet):
     """
@@ -57,7 +59,7 @@ class DirectorViewSet(viewsets.ViewSet):
     """
     ViewSet para o Director da Escola realizar operações de gestão e dashboard.
     """
-    permission_classes = [IsAuthenticated, IsAdminEscola]
+    permission_classes = [IsAuthenticated, IsAdminEscola | IsDAP | IsDAE | IsAdministrativo, IsSchoolNotBlocked]
 
     @action(detail=False, methods=['post'])
     def bloquear_escola(self, request):
@@ -69,6 +71,14 @@ class DirectorViewSet(viewsets.ViewSet):
         return Response({"status": "success", "message": f"Escola {status_msg} com sucesso.", "blocked": school.blocked})
 
     @action(detail=False, methods=['get'])
+    def get_disciplinas(self, request):
+        from salamandra_sge.academico.models import Disciplina
+        from salamandra_sge.academico.serializers import DisciplinaSerializer
+        disciplinas = Disciplina.objects.filter(school=request.user.school)
+        serializer = DisciplinaSerializer(disciplinas, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
     def dashboard(self, request):
         school = request.user.school
         from salamandra_sge.academico.models import Aluno, Professor, Turma, Disciplina
@@ -77,33 +87,53 @@ class DirectorViewSet(viewsets.ViewSet):
         from django.db.models import Avg
 
         total_alunos = Aluno.objects.filter(school=school, ativo=True).count()
-        total_docentes = Professor.objects.filter(school=school).count()
+        total_professores = Professor.objects.filter(school=school).count()
         total_tecnicos = Funcionario.objects.filter(school=school).count()
         
-        # Aproveitamento por classe
+        # Aproveitamento por classe (Percentagem de Aprovados >= 10)
         estatisticas_classes = []
         classes = school.classes.all()
         for cl in classes:
-            avg_classe = Nota.objects.filter(school=school, aluno__classe_atual=cl).aggregate(Avg('valor'))['valor__avg']
+            notas_classe = Nota.objects.filter(school=school, aluno__classe_atual=cl)
+            total_notas = notas_classe.count()
+            aprovados = notas_classe.filter(valor__gte=10).count()
+            percentagem = (aprovados / total_notas * 100) if total_notas > 0 else 0
+            
             estatisticas_classes.append({
                 "classe": cl.nome,
-                "media": float(avg_classe) if avg_classe is not None else 0
+                "media": float(percentagem)
             })
 
-        # Aproveitamento por disciplina
+        # Aproveitamento por disciplina (Percentagem de Aprovados >= 10)
         estatisticas_disciplinas = []
         disciplinas = school.disciplinas.all()
         for disc in disciplinas:
-            avg_disc = Nota.objects.filter(school=school, disciplina=disc).aggregate(Avg('valor'))['valor__avg']
+            notas_disc = Nota.objects.filter(school=school, disciplina=disc)
+            total_notas = notas_disc.count()
+            aprovados = notas_disc.filter(valor__gte=10).count()
+            percentagem = (aprovados / total_notas * 100) if total_notas > 0 else 0
+
             estatisticas_disciplinas.append({
                 "disciplina": disc.nome,
-                "media": float(avg_disc) if avg_disc is not None else 0
+                "media": float(percentagem)
             })
+
+        # Aproveitamento Global da Escola (% de alunos com média >= 10)
+        alunos_ativos = Aluno.objects.filter(school=school, ativo=True)
+        total_alunos_escola = alunos_ativos.count()
+        aprovados_escola = 0
+        for aluno in alunos_ativos:
+            media_aluno = Nota.objects.filter(aluno=aluno).aggregate(Avg('valor'))['valor__avg']
+            if media_aluno and media_aluno >= 10:
+                aprovados_escola += 1
+        
+        aproveitamento_global = (aprovados_escola / total_alunos_escola * 100) if total_alunos_escola > 0 else 0
 
         return Response({
             "total_alunos": total_alunos,
-            "total_docentes": total_docentes,
+            "total_professores": total_professores,
             "total_tecnicos": total_tecnicos,
+            "aproveitamento_global": float(aproveitamento_global),
             "aproveitamento_por_classe": estatisticas_classes,
             "aproveitamento_por_disciplina": estatisticas_disciplinas
         })
