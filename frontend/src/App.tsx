@@ -18,6 +18,9 @@ import GestaoAlunos from './pages/Academic/GestaoAlunos';
 import GestaoTurmas from './pages/Academic/GestaoTurmas';
 import GestaoFuncionarios from './pages/Staff/GestaoFuncionarios';
 import GestaoCargosProfessores from './pages/Staff/GestaoCargosProfessores';
+import AtribuicaoTurma from './pages/Academic/AtribuicaoTurma';
+import AtribuicaoProfessor from './pages/Academic/AtribuicaoProfessor';
+import GestaoTurmasDAE from './pages/Academic/GestaoTurmasDAE';
 
 function App() {
   return (
@@ -50,8 +53,13 @@ function App() {
             {/* Escola - Pedagógico (DAP/DAE) */}
             <Route path="dap" element={<DapDashboard />} />
             <Route path="dap/professores" element={<GestaoCargosProfessores />} />
+            <Route path="dap/turmas" element={<GestaoTurmasDAE />} />
             <Route path="dae" element={<DapDashboard />} />
             <Route path="dae/cargos" element={<GestaoCargosProfessores />} />
+
+            {/* Atribuição de Disciplinas (Shared DAP/DAE) */}
+            <Route path="academico/atribuicao-turmas" element={<AtribuicaoTurma />} />
+            <Route path="academico/atribuicao-professor" element={<AtribuicaoProfessor />} />
 
             {/* Escola - Professor */}
             <Route path="professor" element={<ProfessorDashboard />} />

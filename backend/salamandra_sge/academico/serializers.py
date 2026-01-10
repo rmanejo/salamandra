@@ -60,10 +60,15 @@ class MovimentacaoTurmaSerializer(serializers.Serializer):
     nova_turma_id = serializers.IntegerField()
 
 class ProfessorCargoAssignmentSerializer(serializers.Serializer):
-    professor_id = serializers.IntegerField()
+    professor_id = serializers.IntegerField(allow_null=True)
     cargo_tipo = serializers.ChoiceField(choices=['DT', 'CC', 'DD'])
     entidade_id = serializers.IntegerField()
     ano_letivo = serializers.IntegerField()
+
+class AtribuicaoDisciplinaSerializer(serializers.Serializer):
+    disciplina_id = serializers.IntegerField()
+    professor_id = serializers.IntegerField(allow_null=True) # Check if unassignment is needed (null)
+
 
 class ClasseSerializer(serializers.ModelSerializer):
     class Meta:
@@ -74,8 +79,15 @@ class ClasseSerializer(serializers.ModelSerializer):
 class TurmaSerializer(serializers.ModelSerializer):
     classe = ClasseSerializer(read_only=True)
     classe_id = serializers.IntegerField(write_only=True, required=False)
+    director_nome = serializers.SerializerMethodField()
     
     class Meta:
         model = Turma
-        fields = ['id', 'nome', 'classe', 'classe_id', 'ano_letivo', 'school']
+        fields = ['id', 'nome', 'classe', 'classe_id', 'ano_letivo', 'school', 'director_nome']
         read_only_fields = ['school']
+
+    def get_director_nome(self, obj):
+        try:
+            return obj.director_turma.professor.user.get_full_name()
+        except:
+            return None

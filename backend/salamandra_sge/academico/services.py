@@ -8,7 +8,7 @@ class FormacaoTurmaService:
 
     @staticmethod
     @transaction.atomic
-    def distribuir_alunos(school, classe, ano_letivo, min_alunos, max_alunos):
+    def distribuir_alunos(school, classe, ano_letivo, min_alunos, max_alunos, naming_convention='ALPHABETIC'):
         """
         Distribui alunos inscritos numa classe em turmas existentes.
         Ordenação: Alunos mais novos primeiro.
@@ -26,22 +26,101 @@ class FormacaoTurmaService:
             return {"status": "error", "message": "Nenhum aluno sem turma encontrado para esta classe."}
 
         # 2. Buscar turmas disponíveis para esta classe
-        turmas = Turma.objects.filter(
+        # 2. Buscar turmas disponíveis
+        turmas = list(Turma.objects.filter(
             school=school,
             classe=classe,
             ano_letivo=ano_letivo
-        ).order_by('nome') # Geralmente A, B, C...
+        ).order_by('nome'))
 
-        num_turmas = turmas.count()
-        if num_turmas == 0:
-            return {"status": "error", "message": "Nenhuma turma criada para esta classe e ano lectivo."}
+        num_turmas = len(turmas)
+        
+        # Calcular turmas necessárias
+        import math
+        turmas_necessarias = math.ceil(total_alunos / max_alunos)
+        
+        # Se não houver turmas ou forem insuficientes, criar novas
+        if num_turmas < turmas_necessarias:
+            
+            existing_names = [t.nome for t in turmas]
+            count_created = 0
+            needed = turmas_necessarias - num_turmas
+            
+            # Helper para gerar nomes baseados na convenção
+            def get_name(index, convention):
+                if convention == 'NUMERIC':
+                    return str(index + 1)
+                elif convention == 'ROMAN':
+                    # Simplificado para casos comuns (até 20)
+                    val = [
+                        1000, 900, 500, 400,
+                        100, 90, 50, 40,
+                        10, 9, 5, 4,
+                        1
+                        ]
+                    syb = [
+                        "M", "CM", "D", "CD",
+                        "C", "XC", "L", "XL",
+                        "X", "IX", "V", "IV",
+                        "I"
+                        ]
+                    num = index + 1
+                    roman_num = ''
+                    i = 0
+                    while  num > 0:
+                        for _ in range(num // val[i]):
+                            roman_num += syb[i]
+                            num -= val[i]
+                        i += 1
+                    return roman_num
+                else: # ALPHABETIC (Default)
+                    import string
+                    letras = string.ascii_uppercase
+                    if index < len(letras):
+                        return letras[index]
+                    return f"T{index+1}" # Fallback
+            
+            # Tenta gerar nomes sequenciais até satisfazer a necessidade
+            # Começamos de 0 até encontrar nomes livres
+            curr_idx = 0
+            while count_created < needed:
+                # Loop de segurança para não infinito
+                if curr_idx > 100: 
+                    break
+                    
+                nome_cand = get_name(curr_idx, naming_convention)
+                if nome_cand not in existing_names:
+                    # Verifica se já existe na base (caso existing_names fosse só do filtro inicial que pode estar stale, mas aqui trust no db state seria melhor, mas nomes únicos por classe/ano/escola)
+                    # O turmas inicial já filtrou school/classe/ano.
+                    
+                    try:
+                        nova_turma = Turma.objects.create(
+                            school=school,
+                            classe=classe,
+                            ano_letivo=ano_letivo,
+                            nome=nome_cand
+                        )
+                        turmas.append(nova_turma)
+                        existing_names.append(nome_cand)
+                        count_created += 1
+                    except Exception as e:
+                        # Pode dar erro de unique constraint se houver race condition ou outra turma criada
+                        pass
+                
+                curr_idx += 1
+                
+            # Recarregar/reordenar lista final
+            # Ordenação customizada complexa, vamos ordenar por ID de criação para simplificar distribuição
+            turmas.sort(key=lambda x: x.id) 
+            num_turmas = len(turmas)
 
-        # 3. Validar se as turmas comportam os alunos (opcional, mas boa prática)
+        # 3. Validar validação de capacidade (agora deve ter capacidade suficiente)
         capacidade_total = num_turmas * max_alunos
         if total_alunos > capacidade_total:
+             # Isso só acontece se estourou muito o limite (ex: > 26 turmas se usarmos só A-Z)
             return {
                 "status": "warning", 
-                "message": f"Total de alunos ({total_alunos}) excede a capacidade máxima das turmas ({capacidade_total})."
+                "message": f"Total de alunos ({total_alunos}) excede a capacidade calculada mesmo criando turmas."
             }
 
         # 4. Distribuição Equilibrada (Round-robin simplificado)
@@ -192,11 +271,18 @@ class DAEService:
         from .models import Professor, Turma, Classe, Disciplina, DirectorTurma, CoordenadorClasse, DelegadoDisciplina
         
         try:
-            professor = Professor.objects.get(id=professor_id, school=school)
+            if professor_id is None:
+                professor = None
+            else:
+                professor = Professor.objects.get(id=professor_id, school=school)
         except Professor.DoesNotExist:
             return {"status": "error", "message": "Professor não encontrado."}
 
         if cargo_tipo == 'DT':
+            if professor is None:
+                 DirectorTurma.objects.filter(turma_id=entidade_id, school=school).delete()
+                 return {"status": "success", "message": "Director de Turma removido."}
+                 
             try:
                 turma = Turma.objects.get(id=entidade_id, school=school)
                 DirectorTurma.objects.update_or_create(

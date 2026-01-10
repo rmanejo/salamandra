@@ -53,6 +53,8 @@ const Sidebar: React.FC = () => {
         // DAE/DAP (Pedagógico)
         ...((user?.role === 'DAE' || user?.role === 'DAP') ? [
             { path: user.role === 'DAE' ? '/dae/cargos' : '/dap/professores', icon: <FaChalkboardTeacher />, label: 'Gestão de Professores' },
+            { path: '/dap/turmas', icon: <FaThLarge />, label: 'Gestão de Turmas' },
+            { path: '/academico/atribuicao-professor', icon: <FaUserGraduate />, label: 'Atribuição (Por Prof.)' },
             { path: '/director/recursos', icon: <FaChalkboardTeacher />, label: 'Recursos Humanos' },
         ] : []),
 

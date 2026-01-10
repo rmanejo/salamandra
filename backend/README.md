@@ -155,7 +155,7 @@ cp .env.example .env
 Este comando inicia o Django, Postgres, Redis, Celery Worker e pgAdmin:
 ```bash
 cd backend
- docker compose --profile development down
+docker compose --profile development down
 
 docker compose --profile development up -d --build
 ```

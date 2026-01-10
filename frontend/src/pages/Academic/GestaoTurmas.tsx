@@ -31,7 +31,8 @@ const GestaoTurmas: React.FC = () => {
         classe_id: '',
         ano_letivo: new Date().getFullYear(),
         min_alunos: 20,
-        max_alunos: 50
+        max_alunos: 50,
+        naming_convention: 'ALPHABETIC'
     });
 
     const [formationResult, setFormationResult] = useState<any>(null);
@@ -248,6 +249,22 @@ const GestaoTurmas: React.FC = () => {
                                                 value={formarData.max_alunos}
                                                 onChange={e => setFormarData({ ...formarData, max_alunos: parseInt(e.target.value) })}
                                             />
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={12}>
+                                        <Form.Group>
+                                            <Form.Label>Padrão de Nomenclatura</Form.Label>
+                                            <Form.Select
+                                                value={formarData.naming_convention}
+                                                onChange={e => setFormarData({ ...formarData, naming_convention: e.target.value })}
+                                            >
+                                                <option value="ALPHABETIC">Alfabético (A, B, C...)</option>
+                                                <option value="NUMERIC">Numérico (1, 2, 3...)</option>
+                                                <option value="ROMAN">Romano (I, II, III...)</option>
+                                            </Form.Select>
+                                            <Form.Text className="text-muted">
+                                                Define como as novas turmas geradas serão nomeadas.
+                                            </Form.Text>
                                         </Form.Group>
                                     </Col>
                                 </Row>

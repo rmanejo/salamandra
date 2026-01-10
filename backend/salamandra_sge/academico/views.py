@@ -20,6 +20,7 @@ from .serializers import (
     ClasseSerializer
 )
 
+
 class AlunoViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestão de alunos.
@@ -135,6 +136,26 @@ class ProfessorViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(school=self.request.user.school)
 
+    @action(detail=True, methods=['get'])
+    def atribuicoes(self, request, pk=None):
+        """
+        Retorna as atribuições (Turma/Disciplina) deste professor.
+        """
+        professor = self.get_object()
+        from .models import ProfessorTurmaDisciplina
+        atribuicoes = ProfessorTurmaDisciplina.objects.filter(professor=professor)
+        
+        data = []
+        for a in atribuicoes:
+            data.append({
+                "id": a.id,
+                "turma_id": a.turma.id,
+                "turma_nome": f"{a.turma.nome} ({a.turma.ano_letivo})",
+                "disciplina_id": a.disciplina.id,
+                "disciplina_nome": a.disciplina.nome
+            })
+        return Response(data)
+
 class DAEViewSet(viewsets.ViewSet):
     """
     ViewSet para o Director Adjunto de Escola (DAE).
@@ -184,7 +205,7 @@ class TurmaViewSet(viewsets.ModelViewSet):
             return self.queryset.filter(school=user.school)
         return self.queryset.none()
 
-    @action(detail=False, methods=['post'], permission_classes=[IsAdministrativo])
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminEscola | IsDAP | IsAdministrativo, IsSchoolNotBlocked])
     def formar_turmas(self, request):
         """
         Endpoint para disparar a formação automática de turmas.
@@ -193,6 +214,7 @@ class TurmaViewSet(viewsets.ModelViewSet):
         ano_letivo = request.data.get('ano_letivo')
         min_alunos = request.data.get('min_alunos', 20)
         max_alunos = request.data.get('max_alunos', 50)
+        naming_convention = request.data.get('naming_convention', 'ALPHABETIC')
 
         if not all([classe_id, ano_letivo]):
             return Response(
@@ -213,13 +235,93 @@ class TurmaViewSet(viewsets.ModelViewSet):
             classe=classe,
             ano_letivo=ano_letivo,
             min_alunos=int(min_alunos),
-            max_alunos=int(max_alunos)
+            max_alunos=int(max_alunos),
+            naming_convention=naming_convention
         )
 
         if result['status'] == 'error':
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
         
         return Response(result, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'])
+    def disciplinas(self, request, pk=None):
+        """
+        Retorna as disciplinas desta turma (baseadas na escola/curriculo) e seus professores.
+        """
+        turma = self.get_object()
+        school = request.user.school
+        
+        # 1. Obter todas as disciplinas da escola (Simplificação: todas disponíveis podem ser atribuídas)
+        disciplinas = Disciplina.objects.filter(school=school).order_by('nome')
+        
+        # 2. Obter atribuições atuais
+        from .models import ProfessorTurmaDisciplina
+        atribuicoes = ProfessorTurmaDisciplina.objects.filter(turma=turma)
+        atribuicoes_map = {a.disciplina_id: a.professor for a in atribuicoes} # Map disciplina_id -> Professor obj
+        
+        resultado = []
+        for disc in disciplinas:
+            prof = atribuicoes_map.get(disc.id)
+            resultado.append({
+                "id": disc.id,
+                "nome": disc.nome,
+                "professor_id": prof.id if prof else None,
+                "professor_nome": prof.user.get_full_name() if prof else None
+            })
+            
+        return Response(resultado, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminEscola | IsDAP | IsAdministrativo, IsSchoolNotBlocked])
+    def atribuir_professor(self, request, pk=None):
+        """
+        Atribui ou remove um professor de uma disciplina nesta turma.
+        """
+        turma = self.get_object()
+        school = request.user.school
+        
+        from .serializers import AtribuicaoDisciplinaSerializer
+        serializer = AtribuicaoDisciplinaSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            disc_id = serializer.validated_data['disciplina_id']
+            prof_id = serializer.validated_data['professor_id']
+            
+            try:
+                disciplina = Disciplina.objects.get(id=disc_id, school=school)
+            except Disciplina.DoesNotExist:
+                return Response({"error": "Disciplina não encontrada."}, status=status.HTTP_404_NOT_FOUND)
+            
+            from .models import ProfessorTurmaDisciplina
+            
+            if prof_id:
+                try:
+                    prof = Professor.objects.get(id=prof_id, school=school)
+                    
+                    # Check if professor teaches this subject (optional validation, but good practice)
+                    # if not prof.disciplinas.filter(id=disc_id).exists():
+                    #     return Response({"warning": "Professor não tem esta disciplina em sua lista."}, status=status.HTTP_200_OK)
+                        
+                except Professor.DoesNotExist:
+                     return Response({"error": "Professor não encontrado."}, status=status.HTTP_404_NOT_FOUND)
+                
+                # Create or Update
+                check, created = ProfessorTurmaDisciplina.objects.update_or_create(
+                    turma=turma,
+                    disciplina=disciplina,
+                    defaults={
+                        'professor': prof, 
+                        'school': school
+                    }
+                )
+                
+                return Response({"status": "success", "message": f"Professor {prof} atribuído à {disciplina.nome}."}, status=status.HTTP_200_OK)
+            else:
+                # Remove assignment
+                ProfessorTurmaDisciplina.objects.filter(turma=turma, disciplina=disciplina).delete()
+                return Response({"status": "success", "message": f"Atribuição removida de {disciplina.nome}."}, status=status.HTTP_200_OK)
+                
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ClasseViewSet(viewsets.ReadOnlyModelViewSet):

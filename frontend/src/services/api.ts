@@ -216,7 +216,7 @@ export const academicService = {
         const response = await api.get('/academico/classes/');
         return response.data;
     },
-    formarTurmas: async (data: { classe_id: number; ano_letivo: number; min_alunos?: number; max_alunos?: number }) => {
+    formarTurmas: async (data: { classe_id: number; ano_letivo: number; min_alunos?: number; max_alunos?: number; naming_convention?: string }) => {
         const response = await api.post('/academico/turmas/formar_turmas/', data);
         return response.data;
     },
@@ -233,6 +233,23 @@ export const academicService = {
         const response = await api.post('/academico/classes/setup_academico/');
         return response.data;
     },
+    getTurmaDisciplinas: async (turmaId: number) => {
+        const response = await api.get(`/academico/turmas/${turmaId}/disciplinas/`);
+        return response.data;
+    },
+    atribuirProfessor: async (turmaId: number, data: { disciplina_id: number; professor_id: number | null }) => {
+        const response = await api.post(`/academico/turmas/${turmaId}/atribuir_professor/`, data);
+        return response.data;
+    },
+    getTeacherAssignments: async (teacherId: number) => {
+        const response = await api.get(`/academico/professores/${teacherId}/atribuicoes/`);
+        return response.data;
+    },
+    updateTurma: async (id: number, data: any) => {
+        const response = await api.patch(`/academico/turmas/${id}/`, data);
+        return response.data;
+    },
+    atribuirCargo: (data: { professor_id: number | null; cargo_tipo: string; entidade_id: number; ano_letivo: number }) => api.post('/academico/dae/atribuir_cargo/', data),
 };
 
 export const evaluationService = {
