@@ -245,6 +245,10 @@ export const academicService = {
         const response = await api.get(`/academico/professores/${teacherId}/atribuicoes/`);
         return response.data;
     },
+    getMinhasAtribuicoes: async () => {
+        const response = await api.get('/academico/professores/minhas_atribuicoes/');
+        return response.data;
+    },
     updateTurma: async (id: number, data: any) => {
         const response = await api.patch(`/academico/turmas/${id}/`, data);
         return response.data;
@@ -259,6 +263,14 @@ export const evaluationService = {
     },
     getGrades: async (params?: any) => {
         const response = await api.get('/avaliacoes/notas/', { params });
+        return response.data;
+    },
+    updateNota: async (id: number, gradeData: any) => {
+        const response = await api.patch(`/avaliacoes/notas/${id}/`, gradeData);
+        return response.data;
+    },
+    getResumoTrimestral: async (params?: any) => {
+        const response = await api.get('/avaliacoes/resumos/', { params });
         return response.data;
     },
     postAbsence: async (absenceData: any) => {

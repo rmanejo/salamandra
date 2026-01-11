@@ -3,9 +3,10 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from salamandra_sge.accounts.permissions import IsProfessor, IsDT, IsSchoolNotBlocked
-from .models import Nota, Falta
-from .serializers import NotaSerializer, FaltaSerializer
+from .models import Nota, Falta, ResumoTrimestral
+from .serializers import NotaSerializer, FaltaSerializer, ResumoTrimestralSerializer
 from salamandra_sge.academico.models import ProfessorTurmaDisciplina, DirectorTurma
+from .services import AvaliacaoService
 
 class NotaViewSet(viewsets.ModelViewSet):
     """
@@ -27,7 +28,54 @@ class NotaViewSet(viewsets.ModelViewSet):
         return qs.filter(turma_id__in=turmas_ids, disciplina_id__in=disciplinas_ids)
 
     def perform_create(self, serializer):
-        serializer.save(school=self.request.user.school)
+        instance = serializer.save(school=self.request.user.school)
+        self._update_resumo(instance)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        self._update_resumo(instance)
+
+    def _update_resumo(self, instance):
+        # Update summary using service
+        # Use student's current turma if possible, else the note's turma
+        turma_atual = instance.aluno.turma_atual or instance.turma
+        
+        AvaliacaoService.update_resumo_trimestral(
+            student=instance.aluno,
+            discipline=instance.disciplina,
+            trimester=instance.trimestre,
+            year=instance.turma.ano_letivo,
+            turma_context=turma_atual
+        )
+
+class ResumoTrimestralViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet para visualizar os resumos trimestrais (Caderneta).
+    """
+    queryset = ResumoTrimestral.objects.all()
+    serializer_class = ResumoTrimestralSerializer
+    permission_classes = [IsAuthenticated, IsSchoolNotBlocked]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = self.queryset.filter(school=user.school)
+        
+        # Filtros opcionais
+        turma_id = self.request.query_params.get('turma')
+        disciplina_id = self.request.query_params.get('disciplina')
+        aluno_id = self.request.query_params.get('aluno')
+        trimestre = self.request.query_params.get('trimestre')
+
+        if turma_id:
+            qs = qs.filter(turma_id=turma_id)
+        if disciplina_id:
+            qs = qs.filter(disciplina_id=disciplina_id)
+        if aluno_id:
+            qs = qs.filter(aluno_id=aluno_id)
+        if trimestre:
+            qs = qs.filter(trimestre=trimestre)
+            
+        return qs
 
 class FaltaViewSet(viewsets.ModelViewSet):
     """

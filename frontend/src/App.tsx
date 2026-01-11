@@ -21,6 +21,7 @@ import GestaoCargosProfessores from './pages/Staff/GestaoCargosProfessores';
 import AtribuicaoTurma from './pages/Academic/AtribuicaoTurma';
 import AtribuicaoProfessor from './pages/Academic/AtribuicaoProfessor';
 import GestaoTurmasDAE from './pages/Academic/GestaoTurmasDAE';
+import Caderneta from './pages/Academic/Caderneta';
 
 function App() {
   return (
@@ -63,7 +64,7 @@ function App() {
 
             {/* Escola - Professor */}
             <Route path="professor" element={<ProfessorDashboard />} />
-            <Route path="professor/notas" element={<GenericPlaceholder title="Lançamento de Notas" />} />
+            <Route path="professor/notas" element={<Caderneta />} />
             <Route path="professor/faltas" element={<GenericPlaceholder title="Lançamento de Faltas" />} />
 
             {/* Escola - Administrativo */}

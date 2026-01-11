@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Nota, Falta
+from .models import Nota, Falta, ResumoTrimestral
 
 class NotaSerializer(serializers.ModelSerializer):
     class Meta:
@@ -12,3 +12,9 @@ class FaltaSerializer(serializers.ModelSerializer):
         model = Falta
         fields = '__all__'
         read_only_fields = ['school', 'created_at']
+
+class ResumoTrimestralSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ResumoTrimestral
+        fields = '__all__'
+        read_only_fields = ['school']

@@ -24,10 +24,20 @@ from .serializers import (
 class AlunoViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestão de alunos.
+    Professores têm acesso somente de leitura aos alunos das turmas onde lecionam.
     """
     queryset = Aluno.objects.all()
     serializer_class = AlunoSerializer
-    permission_classes = [IsAdminEscola | IsDAP | IsAdministrativo]
+    permission_classes = [IsAuthenticated, IsSchoolNotBlocked]
+
+    def get_permissions(self):
+        """
+        Professores só podem listar/visualizar.
+        Criar/editar/deletar requer permissões administrativas.
+        """
+        if self.action in ['list', 'retrieve']:
+            return [IsAuthenticated(), IsSchoolNotBlocked()]
+        return [IsAuthenticated(), IsSchoolNotBlocked(), (IsAdminEscola | IsDAP | IsAdministrativo)()]
 
     def get_queryset(self):
         user = self.request.user
@@ -36,10 +46,28 @@ class AlunoViewSet(viewsets.ModelViewSet):
         classe_id = self.request.query_params.get('classe_id')
         turma_id = self.request.query_params.get('turma_id')
         
-        if classe_id:
-            qs = qs.filter(classe_atual_id=classe_id)
-        if turma_id:
-            qs = qs.filter(turma_atual_id=turma_id)
+        # Se for professor, filtrar apenas alunos das turmas onde leciona
+        if hasattr(user, 'docente_profile'):
+            from .models import ProfessorTurmaDisciplina
+            professor = user.docente_profile
+            turmas_atribuidas = ProfessorTurmaDisciplina.objects.filter(
+                professor=professor
+            ).values_list('turma_id', flat=True)
+            
+            # Se especificou turma_id, verificar se professor tem acesso
+            if turma_id:
+                if int(turma_id) not in turmas_atribuidas:
+                    return qs.none()  # Professor não tem acesso a essa turma
+                qs = qs.filter(turma_atual_id=turma_id)
+            else:
+                # Sem filtro específico, mostrar apenas alunos das turmas atribuídas
+                qs = qs.filter(turma_atual_id__in=turmas_atribuidas)
+        else:
+            # Usuários administrativos veem todos os alunos (com filtros opcionais)
+            if classe_id:
+                qs = qs.filter(classe_atual_id=classe_id)
+            if turma_id:
+                qs = qs.filter(turma_atual_id=turma_id)
             
         return qs
 
@@ -150,9 +178,35 @@ class ProfessorViewSet(viewsets.ModelViewSet):
             data.append({
                 "id": a.id,
                 "turma_id": a.turma.id,
-                "turma_nome": f"{a.turma.nome} ({a.turma.ano_letivo})",
+                "turma_nome": f"{a.turma.nome} ({a.turma.class_name if hasattr(a.turma, 'class_name') else a.turma.ano_letivo})", # Fallback for name
                 "disciplina_id": a.disciplina.id,
-                "disciplina_nome": a.disciplina.nome
+                "disciplina_nome": a.disciplina.nome,
+                "ano_letivo": a.turma.ano_letivo
+            })
+        return Response(data)
+
+    @action(detail=False, methods=['get'])
+    def minhas_atribuicoes(self, request):
+        """
+        Retorna as atribuições do professor logado.
+        """
+        try:
+            professor = Professor.objects.get(user=request.user)
+        except Professor.DoesNotExist:
+            return Response({"error": "Perfil de professor não encontrado para este usuário."}, status=status.HTTP_404_NOT_FOUND)
+
+        from .models import ProfessorTurmaDisciplina
+        atribuicoes = ProfessorTurmaDisciplina.objects.filter(professor=professor)
+        
+        data = []
+        for a in atribuicoes:
+            data.append({
+                "id": a.id,
+                "turma_id": a.turma.id,
+                "turma_nome": a.turma.nome,
+                "disciplina_id": a.disciplina.id,
+                "disciplina_nome": a.disciplina.nome,
+                "ano_letivo": a.turma.ano_letivo
             })
         return Response(data)
 
