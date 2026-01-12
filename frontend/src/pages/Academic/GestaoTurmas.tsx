@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Card, Table, Button, Form, Row, Col, Badge, Modal, Spinner, Alert } from 'react-bootstrap';
-import { FaUsers, FaSync, FaTools, FaCheckCircle } from 'react-icons/fa';
+import { FaUsers, FaSync, FaTools, FaCheckCircle, FaEdit, FaTrash, FaEye } from 'react-icons/fa';
 import { academicService } from '../../services/api';
 
 interface Classe {
@@ -13,7 +13,14 @@ interface Turma {
     nome: string;
     classe: Classe;
     ano_letivo: number;
-    student_count?: number; // Backend might provide this or we calculate
+    student_count?: number; // Backend now provides this
+}
+
+interface Student {
+    id: number;
+    nome_completo: string;
+    sexo: string;
+    // other fields if needed for list
 }
 
 const GestaoTurmas: React.FC = () => {
@@ -34,8 +41,21 @@ const GestaoTurmas: React.FC = () => {
         max_alunos: 50,
         naming_convention: 'ALPHABETIC'
     });
-
     const [formationResult, setFormationResult] = useState<any>(null);
+
+    // Edit Modal
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editingTurma, setEditingTurma] = useState<Turma | null>(null);
+    const [editData, setEditData] = useState({ nome: '', ano_letivo: 0 });
+
+    // View Students Modal
+    const [showStudentsModal, setShowStudentsModal] = useState(false);
+    const [selectedTurmaForView, setSelectedTurmaForView] = useState<Turma | null>(null);
+    const [studentsList, setStudentsList] = useState<Student[]>([]);
+    const [loadingStudents, setLoadingStudents] = useState(false);
+
+    // Delete State
+    const [deletingId, setDeletingId] = useState<number | null>(null);
 
     useEffect(() => {
         fetchInitialData();
@@ -70,7 +90,6 @@ const GestaoTurmas: React.FC = () => {
             const result = await academicService.formarTurmas(data);
             setFormationResult(result);
             setSuccess('Processo de formação de turmas concluído!');
-            // Refresh turmas list
             const updatedTurmas = await academicService.getTurmas();
             setTurmas(updatedTurmas);
         } catch (err: any) {
@@ -92,6 +111,60 @@ const GestaoTurmas: React.FC = () => {
             setError(err.response?.data?.error || 'Erro ao configurar estrutura académica');
         } finally {
             setSetupLoading(false);
+        }
+    };
+
+    // --- Edit Functions ---
+    const handleOpenEdit = (turma: Turma) => {
+        setEditingTurma(turma);
+        setEditData({ nome: turma.nome, ano_letivo: turma.ano_letivo });
+        setShowEditModal(true);
+    };
+
+    const handleUpdateTurma = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingTurma) return;
+        setSubmitting(true);
+        try {
+            await academicService.updateTurma(editingTurma.id, editData);
+            setSuccess('Turma atualizada com sucesso!');
+            setShowEditModal(false);
+            fetchInitialData();
+        } catch (err: any) {
+            setError('Erro ao atualizar turma');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    // --- Delete Function ---
+    const handleDeleteTurma = async (id: number) => {
+        if (!window.confirm("Tem certeza que deseja apagar esta turma? Esta ação não pode ser desfeita.")) return;
+        setDeletingId(id);
+        try {
+            await academicService.deleteTurma(id);
+            setSuccess('Turma removida com sucesso!');
+            setTurmas(turmas.filter(t => t.id !== id));
+        } catch (err: any) {
+            setError('Erro ao remover turma. Verifique se existem dependências.');
+        } finally {
+            setDeletingId(null);
+        }
+    };
+
+    // --- View Students Functions ---
+    const handleOpenStudents = async (turma: Turma) => {
+        setSelectedTurmaForView(turma);
+        setShowStudentsModal(true);
+        setLoadingStudents(true);
+        try {
+            const data = await academicService.getStudents({ turma_id: turma.id });
+            setStudentsList(Array.isArray(data) ? data : data.results || []);
+        } catch (err) {
+            console.error("Failed to load students", err);
+            setStudentsList([]);
+        } finally {
+            setLoadingStudents(false);
         }
     };
 
@@ -177,12 +250,38 @@ const GestaoTurmas: React.FC = () => {
                                             <td>{turma.ano_letivo}</td>
                                             <td>
                                                 <Badge bg="light" text="dark" className="border">
-                                                    <FaUsers className="me-1 text-primary" /> {turma.student_count || 0}
+                                                    <FaUsers className="me-1 text-primary" /> {turma.student_count ?? 0}
                                                 </Badge>
                                             </td>
                                             <td className="text-end">
-                                                <Button variant="link" size="sm" className="text-primary">Ver Lista</Button>
-                                                <Button variant="link" size="sm" className="text-muted">Editar</Button>
+                                                <Button
+                                                    variant="link"
+                                                    size="sm"
+                                                    className="text-info me-2"
+                                                    onClick={() => handleOpenStudents(turma)}
+                                                    title="Ver Alunos"
+                                                >
+                                                    <FaEye /> Ver Lista
+                                                </Button>
+                                                <Button
+                                                    variant="link"
+                                                    size="sm"
+                                                    className="text-primary me-2"
+                                                    onClick={() => handleOpenEdit(turma)}
+                                                    title="Editar Turma"
+                                                >
+                                                    <FaEdit /> Editar
+                                                </Button>
+                                                <Button
+                                                    variant="link"
+                                                    size="sm"
+                                                    className="text-danger"
+                                                    onClick={() => handleDeleteTurma(turma.id)}
+                                                    disabled={deletingId === turma.id}
+                                                    title="Apagar Turma"
+                                                >
+                                                    {deletingId === turma.id ? <Spinner size="sm" /> : <FaTrash />}
+                                                </Button>
                                             </td>
                                         </tr>
                                     ))
@@ -305,8 +404,89 @@ const GestaoTurmas: React.FC = () => {
                     </Modal.Footer>
                 </Form>
             </Modal>
+
+            {/* Modal: Editar Turma */}
+            <Modal show={showEditModal} onHide={() => setShowEditModal(false)}>
+                <Modal.Header closeButton>
+                    <Modal.Title>Editar Turma</Modal.Title>
+                </Modal.Header>
+                <Form onSubmit={handleUpdateTurma}>
+                    <Modal.Body>
+                        <Form.Group className="mb-3">
+                            <Form.Label>Nome da Turma</Form.Label>
+                            <Form.Control
+                                type="text"
+                                value={editData.nome}
+                                onChange={e => setEditData({ ...editData, nome: e.target.value })}
+                                required
+                            />
+                        </Form.Group>
+                        <Form.Group className="mb-3">
+                            <Form.Label>Ano Letivo</Form.Label>
+                            <Form.Control
+                                type="number"
+                                value={editData.ano_letivo}
+                                onChange={e => setEditData({ ...editData, ano_letivo: parseInt(e.target.value) })}
+                                required
+                            />
+                        </Form.Group>
+                    </Modal.Body>
+                    <Modal.Footer>
+                        <Button variant="secondary" onClick={() => setShowEditModal(false)}>Cancelar</Button>
+                        <Button variant="primary" type="submit" disabled={submitting}>
+                            {submitting ? 'Salvando...' : 'Atualizar'}
+                        </Button>
+                    </Modal.Footer>
+                </Form>
+            </Modal>
+
+            {/* Modal: Ver Alunos */}
+            <Modal show={showStudentsModal} onHide={() => setShowStudentsModal(false)} size="lg" scrollable>
+                <Modal.Header closeButton>
+                    <Modal.Title>
+                        Alunos da Turma: {selectedTurmaForView?.nome}
+                        <Badge bg="info" className="ms-2">{studentsList.length} Alunos</Badge>
+                    </Modal.Title>
+                </Modal.Header>
+                <Modal.Body className="p-0">
+                    {loadingStudents ? (
+                        <div className="text-center py-5">
+                            <Spinner animation="border" />
+                        </div>
+                    ) : (
+                        <Table hover responsive className="mb-0">
+                            <thead className="bg-light sticky-top">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Nome Completo</th>
+                                    <th>Sexo</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {studentsList.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} className="text-center py-4 text-muted">A turma não possui alunos activos.</td>
+                                    </tr>
+                                ) : (
+                                    studentsList.map((st, idx) => (
+                                        <tr key={st.id}>
+                                            <td>{idx + 1}</td>
+                                            <td className="fw-medium">{st.nome_completo}</td>
+                                            <td>{st.sexo ? st.sexo[0] : '-'}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </Table>
+                    )}
+                </Modal.Body>
+                <Modal.Footer>
+                    <Button variant="secondary" onClick={() => setShowStudentsModal(false)}>Fechar</Button>
+                </Modal.Footer>
+            </Modal>
         </Container>
     );
 };
 
 export default GestaoTurmas;
+

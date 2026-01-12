@@ -225,21 +225,23 @@ const GestaoTurmasDAE: React.FC = () => {
                                 <thead className="bg-light">
                                     <tr>
                                         <th>Nome Completo</th>
-                                        <th>Género</th>
+                                        <th>Sexo</th>
                                         <th>Enc. Educação</th>
+                                        <th>Contacto</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {loadingDetails ? (
-                                        <tr><td colSpan={3} className="text-center py-4"><Spinner size="sm" /> Carregando...</td></tr>
+                                        <tr><td colSpan={4} className="text-center py-4"><Spinner size="sm" /> Carregando...</td></tr>
                                     ) : turmaAlunos.length === 0 ? (
-                                        <tr><td colSpan={3} className="text-center py-4 text-muted">Nenhum aluno nesta turma.</td></tr>
+                                        <tr><td colSpan={4} className="text-center py-4 text-muted">Nenhum aluno nesta turma.</td></tr>
                                     ) : (
                                         turmaAlunos.map(a => (
                                             <tr key={a.id}>
-                                                <td>{a.full_name}</td>
-                                                <td>{a.gender === 'M' ? 'Masculino' : 'Feminino'}</td>
-                                                <td>{a.encarregado_nome || '-'}</td>
+                                                <td>{a.nome_completo}</td>
+                                                <td>{a.sexo === 'HOMEM' ? 'Homem' : a.sexo === 'MULHER' ? 'Mulher' : a.sexo || '-'}</td>
+                                                <td>{a.encarregado_educacao || '-'}</td>
+                                                <td>{a.contacto_encarregado || '-'}</td>
                                             </tr>
                                         ))
                                     )}

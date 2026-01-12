@@ -133,7 +133,7 @@ class AlunoViewSet(viewsets.ModelViewSet):
                 disc_data["trimesters"][tri] = {
                     "acs": [float(n.valor) for n in acs_list],
                     "map": float(map_nota.valor) if map_nota else None,
-                    "macs": float(macs),
+                    "macs": float(macs) if macs is not None else None,
                     "acp": float(acp_nota.valor) if acp_nota else None,
                     "mt": float(mt) if mt is not None else None,
                     "com": com
@@ -250,7 +250,15 @@ class TurmaViewSet(viewsets.ModelViewSet):
     """
     queryset = Turma.objects.all()
     serializer_class = TurmaSerializer
-    permission_classes = [IsAuthenticated, IsSchoolNotBlocked] # Ajustado por cargo se necessário
+
+    def get_permissions(self):
+        """
+        Professores/Alunos só podem listar.
+        Criar/editar/deletar requer permissões administrativas.
+        """
+        if self.action in ['list', 'retrieve', 'disciplinas']:
+            return [IsAuthenticated(), IsSchoolNotBlocked()]
+        return [IsAuthenticated(), IsSchoolNotBlocked(), (IsAdminEscola | IsDAP | IsAdministrativo)()]
 
     def get_queryset(self):
         # Isolamento por escola

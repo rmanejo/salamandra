@@ -23,11 +23,19 @@ interface SummaryData {
     com?: string | null;
 }
 
+interface PendingChange {
+    studentId: number;
+    type: string;
+    value: string;
+}
+
 const Caderneta: React.FC = () => {
     const [loading, setLoading] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [students, setStudents] = useState<Student[]>([]);
     const [grades, setGrades] = useState<Record<number, StudentGrades>>({});
     const [summaries, setSummaries] = useState<Record<number, SummaryData>>({});
+    const [pendingChanges, setPendingChanges] = useState<Map<string, PendingChange>>(new Map());
 
     const [turmas, setTurmas] = useState<any[]>([]);
     const [selectedTurma, setSelectedTurma] = useState<string>('');
@@ -131,34 +139,75 @@ const Caderneta: React.FC = () => {
         }
     };
 
-    const handleGradeChange = async (studentId: number, type: string, value: string) => {
+    const handleGradeChange = (studentId: number, type: string, value: string) => {
         const numValue = parseFloat(value);
-        if (isNaN(numValue) && value !== '') return;
-        if (numValue < 0 || numValue > 20) {
+        if (value !== '' && (isNaN(numValue) || numValue < 0 || numValue > 20)) {
             alert("Nota deve ser entre 0 e 20");
             return;
         }
 
-        const existingNote = grades[studentId]?.[type];
-        const payload = {
-            aluno: studentId,
-            disciplina: selectedDisciplina,
-            turma: selectedTurma,
-            trimestre: selectedTrimestre,
-            tipo: type,
-            valor: numValue
-        };
+        const key = `${studentId}-${type}`;
+        const newPendingChanges = new Map(pendingChanges);
+
+        if (value === '') {
+            newPendingChanges.delete(key);
+        } else {
+            newPendingChanges.set(key, { studentId, type, value });
+        }
+
+        setPendingChanges(newPendingChanges);
+    };
+
+    const saveAllChanges = async () => {
+        if (pendingChanges.size === 0) {
+            alert("Não há alterações para guardar");
+            return;
+        }
+
+        setSaving(true);
+        let successCount = 0;
+        let errorCount = 0;
 
         try {
-            if (existingNote && existingNote.id) {
-                await evaluationService.updateNota(existingNote.id, payload);
-            } else {
-                await evaluationService.postGrade(payload);
+            for (const [, change] of pendingChanges) {
+                const { studentId, type, value } = change;
+                const numValue = parseFloat(value);
+
+                const existingNote = grades[studentId]?.[type];
+                const payload = {
+                    aluno: studentId,
+                    disciplina: selectedDisciplina,
+                    turma: selectedTurma,
+                    trimestre: selectedTrimestre,
+                    tipo: type,
+                    valor: numValue
+                };
+
+                try {
+                    if (existingNote && existingNote.id) {
+                        await evaluationService.updateNota(existingNote.id, payload);
+                    } else {
+                        await evaluationService.postGrade(payload);
+                    }
+                    successCount++;
+                } catch (error) {
+                    console.error(`Error saving grade for student ${studentId}, type ${type}`, error);
+                    errorCount++;
+                }
             }
-            await loadGradebookData();
+
+            if (errorCount === 0) {
+                alert(`${successCount} nota(s) guardada(s) com sucesso!`);
+                setPendingChanges(new Map());
+                await loadGradebookData();
+            } else {
+                alert(`${successCount} nota(s) guardada(s), ${errorCount} erro(s) encontrado(s)`);
+            }
         } catch (error) {
-            console.error("Error saving grade", error);
-            alert("Erro ao salvar nota");
+            console.error("Error saving grades", error);
+            alert("Erro ao guardar notas");
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -169,7 +218,7 @@ const Caderneta: React.FC = () => {
 
         if (!td || !tr) return;
 
-        let targetCell: HTMLElement | null = null;
+        let targetCell: HTMLInputElement | null = null;
 
         switch (e.key) {
             case 'Enter':
@@ -177,27 +226,27 @@ const Caderneta: React.FC = () => {
                 const nextRow = tr.nextElementSibling as HTMLElement;
                 if (nextRow) {
                     const cellIndex = Array.from(tr.children).indexOf(td);
-                    targetCell = nextRow.children[cellIndex]?.querySelector('input') as HTMLElement;
+                    targetCell = nextRow.children[cellIndex]?.querySelector('input') as HTMLInputElement;
                 }
                 break;
 
             case 'Tab':
                 e.preventDefault();
                 if (e.shiftKey) {
-                    targetCell = td.previousElementSibling?.querySelector('input') as HTMLElement;
+                    targetCell = td.previousElementSibling?.querySelector('input') as HTMLInputElement;
                     if (!targetCell) {
                         const prevRow = tr.previousElementSibling as HTMLElement;
                         if (prevRow) {
                             const inputs = prevRow.querySelectorAll('input');
-                            targetCell = inputs[inputs.length - 1] as HTMLElement;
+                            targetCell = inputs[inputs.length - 1] as HTMLInputElement;
                         }
                     }
                 } else {
-                    targetCell = td.nextElementSibling?.querySelector('input') as HTMLElement;
+                    targetCell = td.nextElementSibling?.querySelector('input') as HTMLInputElement;
                     if (!targetCell) {
                         const nextRow = tr.nextElementSibling as HTMLElement;
                         if (nextRow) {
-                            targetCell = nextRow.querySelector('input') as HTMLElement;
+                            targetCell = nextRow.querySelector('input') as HTMLInputElement;
                         }
                     }
                 }
@@ -208,7 +257,7 @@ const Caderneta: React.FC = () => {
                 const prevRow = tr.previousElementSibling as HTMLElement;
                 if (prevRow) {
                     const cellIndex = Array.from(tr.children).indexOf(td);
-                    targetCell = prevRow.children[cellIndex]?.querySelector('input') as HTMLElement;
+                    targetCell = prevRow.children[cellIndex]?.querySelector('input') as HTMLInputElement;
                 }
                 break;
 
@@ -217,21 +266,21 @@ const Caderneta: React.FC = () => {
                 const nextRowDown = tr.nextElementSibling as HTMLElement;
                 if (nextRowDown) {
                     const cellIndex = Array.from(tr.children).indexOf(td);
-                    targetCell = nextRowDown.children[cellIndex]?.querySelector('input') as HTMLElement;
+                    targetCell = nextRowDown.children[cellIndex]?.querySelector('input') as HTMLInputElement;
                 }
                 break;
 
             case 'ArrowLeft':
                 if (input.selectionStart === 0) {
                     e.preventDefault();
-                    targetCell = td.previousElementSibling?.querySelector('input') as HTMLElement;
+                    targetCell = td.previousElementSibling?.querySelector('input') as HTMLInputElement;
                 }
                 break;
 
             case 'ArrowRight':
                 if (input.selectionStart === input.value.length) {
                     e.preventDefault();
-                    targetCell = td.nextElementSibling?.querySelector('input') as HTMLElement;
+                    targetCell = td.nextElementSibling?.querySelector('input') as HTMLInputElement;
                 }
                 break;
         }
@@ -243,8 +292,10 @@ const Caderneta: React.FC = () => {
     };
 
     const renderCell = (studentId: number, type: string, readOnly = false) => {
+        const key = `${studentId}-${type}`;
+        const pendingChange = pendingChanges.get(key);
         const gradeObj = grades[studentId]?.[type];
-        const value = gradeObj ? gradeObj.valor : '';
+        const value = pendingChange ? pendingChange.value : (gradeObj ? gradeObj.valor : '');
 
         if (readOnly) {
             const summary = summaries[studentId];
@@ -253,25 +304,36 @@ const Caderneta: React.FC = () => {
             if (type === 'MT') displayVal = summary?.mt ?? '-';
             if (type === 'COM') displayVal = summary?.com ?? '-';
 
-            return <td className="p-2 border bg-gray-50 text-center">{displayVal}</td>;
+            return (
+                <td className="px-4 py-3 text-center">
+                    <div className="bg-blue-100 text-blue-700 font-semibold rounded-md py-1">
+                        {displayVal}
+                    </div>
+                </td>
+            );
         }
 
+        const hasPendingChange = pendingChanges.has(key);
+
         return (
-            <td className="p-2 border">
+            <td className="px-4 py-3">
                 <input
                     type="text"
                     inputMode="decimal"
                     pattern="[0-9]*\.?[0-9]*"
-                    className="w-16 p-1 border rounded text-center focus:outline-none focus:ring-2 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    defaultValue={value}
+                    value={value}
+                    onChange={(e) => handleGradeChange(studentId, type, e.target.value)}
                     onKeyDown={handleKeyDown}
-                    onBlur={(e) => {
-                        const currentVal = value?.toString() || '';
-                        if (e.target.value !== currentVal) {
-                            handleGradeChange(studentId, type, e.target.value);
-                        }
-                    }}
                     onFocus={(e) => e.target.select()}
+                    className={`
+                        w-full text-center rounded-md px-2 py-1
+                        border focus:outline-none focus:ring-2 focus:ring-blue-400
+                        transition-all
+                        ${hasPendingChange
+                            ? 'bg-yellow-100 border-yellow-300 font-medium'
+                            : 'bg-white border-gray-300 hover:border-gray-400'
+                        }
+                    `}
                 />
             </td>
         );
@@ -294,6 +356,7 @@ const Caderneta: React.FC = () => {
                         onChange={(e) => {
                             setSelectedTurma(e.target.value);
                             setSelectedDisciplina('');
+                            setPendingChanges(new Map());
                         }}
                     >
                         <option value="">Selecione a Turma</option>
@@ -307,7 +370,10 @@ const Caderneta: React.FC = () => {
                     <select
                         className="w-full p-2 border rounded"
                         value={selectedDisciplina}
-                        onChange={(e) => setSelectedDisciplina(e.target.value)}
+                        onChange={(e) => {
+                            setSelectedDisciplina(e.target.value);
+                            setPendingChanges(new Map());
+                        }}
                         disabled={!selectedTurma}
                     >
                         <option value="">Selecione a Disciplina</option>
@@ -321,7 +387,10 @@ const Caderneta: React.FC = () => {
                     <select
                         className="w-full p-2 border rounded"
                         value={selectedTrimestre}
-                        onChange={(e) => setSelectedTrimestre(Number(e.target.value))}
+                        onChange={(e) => {
+                            setSelectedTrimestre(Number(e.target.value));
+                            setPendingChanges(new Map());
+                        }}
                     >
                         <option value={1}>1º Trimestre</option>
                         <option value={2}>2º Trimestre</option>
@@ -334,65 +403,130 @@ const Caderneta: React.FC = () => {
                         type="number"
                         className="w-full p-2 border rounded"
                         value={selectedAno}
-                        onChange={(e) => setSelectedAno(Number(e.target.value))}
+                        onChange={(e) => {
+                            setSelectedAno(Number(e.target.value));
+                            setPendingChanges(new Map());
+                        }}
                     />
                 </div>
             </div>
 
             {selectedTurma && selectedDisciplina ? (
-                <div className="bg-white rounded shadow overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="text-xs text-gray-700 uppercase bg-gray-100">
-                            <tr>
-                                <th className="px-4 py-3 border">#</th>
-                                <th className="px-4 py-3 border w-64">Nome do Aluno</th>
-                                <th className="px-4 py-3 border text-center">Sexo</th>
-                                <th className="px-2 py-3 border text-center w-16">ACS1</th>
-                                <th className="px-2 py-3 border text-center w-16">ACS2</th>
-                                <th className="px-2 py-3 border text-center w-16">ACS3</th>
-                                <th className="px-2 py-3 border text-center w-16">MAP</th>
-                                <th className="px-2 py-3 border text-center w-16 bg-gray-200">MACS</th>
-                                <th className="px-2 py-3 border text-center w-16">ACP</th>
-                                <th className="px-2 py-3 border text-center w-16 bg-gray-200">MT</th>
-                                <th className="px-2 py-3 border text-center w-16 bg-gray-200">COM</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading ? (
-                                <tr>
-                                    <td colSpan={11} className="text-center py-8">Carregando dados...</td>
-                                </tr>
-                            ) : students.length === 0 ? (
-                                <tr>
-                                    <td colSpan={11} className="text-center py-8">Nenhum aluno encontrado nesta turma.</td>
-                                </tr>
-                            ) : (
-                                students.map((student, index) => (
-                                    <tr key={student.id} className="hover:bg-gray-50">
-                                        <td className="px-4 py-2 border">{index + 1}</td>
-                                        <td className="px-4 py-2 border font-medium">{student.nome_completo}</td>
-                                        <td className="px-4 py-2 border text-center">{student.sexo ? student.sexo[0] : '-'}</td>
-
-                                        {renderCell(student.id, 'ACS1')}
-                                        {renderCell(student.id, 'ACS2')}
-                                        {renderCell(student.id, 'ACS3')}
-                                        {renderCell(student.id, 'MAP')}
-
-                                        {renderCell(student.id, 'MACS', true)}
-
-                                        {renderCell(student.id, 'ACP')}
-
-                                        {renderCell(student.id, 'MT', true)}
-                                        {renderCell(student.id, 'COM', true)}
+                <>
+                    <div className="bg-white rounded-lg shadow-md overflow-hidden mb-4">
+                        <div className="overflow-x-auto">
+                            <table className="w-full border-collapse">
+                                <thead>
+                                    <tr className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
+                                        <th className="px-4 py-3 text-center text-sm font-semibold w-12">Nº</th>
+                                        <th className="px-4 py-3 text-left text-sm font-semibold min-w-[200px]">Nome do Aluno</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-16">Sexo</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">ACS1</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">ACS2</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">ACS3</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">MAP</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">MACS</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">ACP</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">MT</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">COM</th>
                                     </tr>
-                                ))
+                                </thead>
+                                <tbody>
+                                    {loading ? (
+                                        <tr>
+                                            <td colSpan={11} className="text-center py-12 text-gray-500">
+                                                <div className="flex items-center justify-center gap-2">
+                                                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
+                                                    Carregando dados...
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ) : students.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={11} className="text-center py-12 text-gray-500">
+                                                Nenhum aluno encontrado nesta turma.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        students.map((student, index) => (
+                                            <tr key={student.id} className={`transition-colors hover:bg-gray-100 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                                <td className="px-4 py-3 text-center text-sm text-gray-600">
+                                                    {index + 1}
+                                                </td>
+                                                <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                                    {student.nome_completo}
+                                                </td>
+                                                <td className="px-3 py-3 text-center text-sm text-gray-600">
+                                                    {student.sexo ? student.sexo[0] : '-'}
+                                                </td>
+
+                                                {renderCell(student.id, 'ACS1')}
+                                                {renderCell(student.id, 'ACS2')}
+                                                {renderCell(student.id, 'ACS3')}
+                                                {renderCell(student.id, 'MAP')}
+
+                                                {renderCell(student.id, 'MACS', true)}
+
+                                                {renderCell(student.id, 'ACP')}
+
+                                                {renderCell(student.id, 'MT', true)}
+                                                {renderCell(student.id, 'COM', true)}
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* Botão Guardar */}
+                    <div className="bg-white rounded-lg shadow-md p-4 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            {pendingChanges.size > 0 ? (
+                                <>
+                                    <div className="w-2.5 h-2.5 bg-yellow-500 rounded-full"></div>
+                                    <span className="text-sm font-medium text-gray-700">
+                                        {pendingChanges.size} alteração(ões) pendente(s)
+                                    </span>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="w-2.5 h-2.5 bg-green-500 rounded-full"></div>
+                                    <span className="text-sm font-medium text-gray-700">
+                                        Todas as alterações guardadas
+                                    </span>
+                                </>
                             )}
-                        </tbody>
-                    </table>
-                </div>
+                        </div>
+                        <button
+                            onClick={saveAllChanges}
+                            disabled={saving || pendingChanges.size === 0}
+                            className={`px-6 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 ${saving || pendingChanges.size === 0
+                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95 shadow-sm hover:shadow-md'
+                                }`}
+                        >
+                            {saving ? (
+                                <span className="flex items-center gap-2">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                    A Guardar...
+                                </span>
+                            ) : (
+                                'Guardar Alterações'
+                            )}
+                        </button>
+                    </div>
+                </>
             ) : (
-                <div className="text-center py-12 bg-white rounded shadow text-gray-500">
-                    Selecione uma Turma e Disciplina para visualizar a caderneta.
+                <div className="text-center py-16 bg-white rounded-lg shadow-sm">
+                    <div className="text-gray-400 mb-2">
+                        <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                    </div>
+                    <p className="text-gray-500 font-medium">
+                        Selecione uma Turma e Disciplina para visualizar a caderneta
+                    </p>
                 </div>
             )}
         </div>

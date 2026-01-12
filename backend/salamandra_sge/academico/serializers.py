@@ -2,10 +2,22 @@ from rest_framework import serializers
 from .models import Disciplina, Aluno, Turma, Classe, Professor
 
 class DisciplinaSerializer(serializers.ModelSerializer):
+    delegado_nome = serializers.SerializerMethodField()
+
     class Meta:
         model = Disciplina
-        fields = ['id', 'nome', 'school']
+        fields = ['id', 'nome', 'school', 'delegado_nome']
         read_only_fields = ['school']
+
+    def get_delegado_nome(self, obj):
+        import datetime
+        from .models import DelegadoDisciplina
+        ano_atual = datetime.datetime.now().year
+        try:
+            dd = DelegadoDisciplina.objects.get(disciplina=obj, school=obj.school, ano_letivo=ano_atual)
+            return dd.professor.user.get_full_name()
+        except DelegadoDisciplina.DoesNotExist:
+            return "-"
 
 class AlunoSerializer(serializers.ModelSerializer):
     classe_nome = serializers.CharField(source='classe_atual.nome', read_only=True)
@@ -80,10 +92,11 @@ class TurmaSerializer(serializers.ModelSerializer):
     classe = ClasseSerializer(read_only=True)
     classe_id = serializers.IntegerField(write_only=True, required=False)
     director_nome = serializers.SerializerMethodField()
+    student_count = serializers.SerializerMethodField()
     
     class Meta:
         model = Turma
-        fields = ['id', 'nome', 'classe', 'classe_id', 'ano_letivo', 'school', 'director_nome']
+        fields = ['id', 'nome', 'classe', 'classe_id', 'ano_letivo', 'school', 'director_nome', 'student_count']
         read_only_fields = ['school']
 
     def get_director_nome(self, obj):
@@ -91,3 +104,6 @@ class TurmaSerializer(serializers.ModelSerializer):
             return obj.director_turma.professor.user.get_full_name()
         except:
             return None
+
+    def get_student_count(self, obj):
+        return obj.alunos_na_turma.filter(ativo=True).count()

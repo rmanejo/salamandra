@@ -47,9 +47,13 @@ class FormacaoTurmaService:
             needed = turmas_necessarias - num_turmas
             
             # Helper para gerar nomes baseados na convenção
-            def get_name(index, convention):
+            def get_name(index, convention, classe_nome):
+                # Extract prefix "7ª" from "7ª Classe"
+                prefix = classe_nome.split(' ')[0] if classe_nome else ""
+                
+                suffix = ""
                 if convention == 'NUMERIC':
-                    return str(index + 1)
+                    suffix = str(index + 1)
                 elif convention == 'ROMAN':
                     # Simplificado para casos comuns (até 20)
                     val = [
@@ -72,13 +76,16 @@ class FormacaoTurmaService:
                             roman_num += syb[i]
                             num -= val[i]
                         i += 1
-                    return roman_num
+                    suffix = roman_num
                 else: # ALPHABETIC (Default)
                     import string
                     letras = string.ascii_uppercase
                     if index < len(letras):
-                        return letras[index]
-                    return f"T{index+1}" # Fallback
+                        suffix = letras[index]
+                    else:
+                        suffix = f"T{index+1}" # Fallback
+                
+                return f"{prefix}{suffix}"
             
             # Tenta gerar nomes sequenciais até satisfazer a necessidade
             # Começamos de 0 até encontrar nomes livres
@@ -88,7 +95,7 @@ class FormacaoTurmaService:
                 if curr_idx > 100: 
                     break
                     
-                nome_cand = get_name(curr_idx, naming_convention)
+                nome_cand = get_name(curr_idx, naming_convention, classe.nome)
                 if nome_cand not in existing_names:
                     # Verifica se já existe na base (caso existing_names fosse só do filtro inicial que pode estar stale, mas aqui trust no db state seria melhor, mas nomes únicos por classe/ano/escola)
                     # O turmas inicial já filtrou school/classe/ano.

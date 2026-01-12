@@ -14,6 +14,7 @@ import DirectorDashboard from './pages/Dashboard/DirectorDashboard';
 import DapDashboard from './pages/Dashboard/DapDashboard';
 import ProfessorDashboard from './pages/Dashboard/ProfessorDashboard';
 import AdministrativoDashboard from './pages/Dashboard/AdministrativoDashboard';
+import GestaoDisciplinas from './pages/Academic/GestaoDisciplinas';
 import GestaoAlunos from './pages/Academic/GestaoAlunos';
 import GestaoTurmas from './pages/Academic/GestaoTurmas';
 import GestaoFuncionarios from './pages/Staff/GestaoFuncionarios';
@@ -71,7 +72,7 @@ function App() {
             <Route path="administrativo" element={<AdministrativoDashboard />} />
             <Route path="admin-escolar/alunos" element={<GestaoAlunos />} />
             <Route path="admin-escolar/formar-turmas" element={<GestaoTurmas />} />
-            <Route path="admin-escolar/disciplinas" element={<GenericPlaceholder title="Gestão de Disciplinas" />} />
+            <Route path="admin-escolar/disciplinas" element={<GestaoDisciplinas />} />
             <Route path="admin-escolar/funcionarios" element={<GestaoFuncionarios />} />
 
             {/* Comum */}

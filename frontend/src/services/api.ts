@@ -253,6 +253,10 @@ export const academicService = {
         const response = await api.patch(`/academico/turmas/${id}/`, data);
         return response.data;
     },
+    deleteTurma: async (id: number) => {
+        const response = await api.delete(`/academico/turmas/${id}/`);
+        return response.data;
+    },
     atribuirCargo: (data: { professor_id: number | null; cargo_tipo: string; entidade_id: number; ano_letivo: number }) => api.post('/academico/dae/atribuir_cargo/', data),
 };
 
