@@ -143,6 +143,51 @@ const DapDashboard: React.FC = () => {
                 </Col>
             </Row>
 
+            {/* Aproveitamento por Turma */}
+            <Row className="g-4 mt-2 mb-4">
+                <Col md={12}>
+                    <Card className="shadow-sm border-0">
+                        <Card.Header className="bg-white border-bottom py-3">
+                            <h6 className="mb-0 fw-bold text-navy">Aproveitamento por Turma</h6>
+                        </Card.Header>
+                        <Card.Body>
+                            <div className="table-responsive">
+                                <table className="table table-hover align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>Turma</th>
+                                            <th className="text-center">Aproveitamento (%)</th>
+                                            <th className="text-center">Director de Turma</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {stats?.directorStats?.aproveitamento_por_turma?.map((item: any) => (
+                                            <tr key={item.turma}>
+                                                <td className="fw-bold">{item.turma}</td>
+                                                <td className="text-center">
+                                                    <div className="d-flex align-items-center gap-2 justify-content-center">
+                                                        <div className="progress flex-grow-1" style={{ height: '6px', maxWidth: '300px' }}>
+                                                            <div
+                                                                className={`progress-bar ${item.media >= 50 ? 'bg-success' : 'bg-warning'}`}
+                                                                style={{ width: `${item.media}%` }}
+                                                            />
+                                                        </div>
+                                                        <span className="small fw-bold">{item.media.toFixed(1)}%</span>
+                                                    </div>
+                                                </td>
+                                                <td className="text-center">
+                                                    {item.dt_nome || "-"}
+                                                </td>
+                                            </tr>
+                                        )) || <tr><td colSpan={3} className="text-center py-4 text-muted">Aguardando dados...</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card.Body>
+                    </Card>
+                </Col>
+            </Row>
+
             {/* Aproveitamento por Disciplina */}
             <Row className="g-4 mt-2 mb-4">
                 <Col md={12}>
@@ -157,6 +202,7 @@ const DapDashboard: React.FC = () => {
                                         <tr>
                                             <th>Disciplina</th>
                                             <th className="text-center">Aproveitamento (%)</th>
+                                            <th className="text-center">Delegado de Disciplina</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -174,8 +220,11 @@ const DapDashboard: React.FC = () => {
                                                         <span className="small fw-bold">{item.media.toFixed(1)}%</span>
                                                     </div>
                                                 </td>
+                                                <td className="text-center">
+                                                    {item.delegado_nome || "-"}
+                                                </td>
                                             </tr>
-                                        )) || <tr><td colSpan={2} className="text-center py-4 text-muted">Aguardando lançamento de notas...</td></tr>}
+                                        )) || <tr><td colSpan={3} className="text-center py-4 text-muted">Aguardando lançamento de notas...</td></tr>}
                                     </tbody>
                                 </table>
                             </div>

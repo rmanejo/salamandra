@@ -50,6 +50,12 @@ class Aluno(models.Model):
         ('ORFAO_AMBOS', 'Órfão de Ambos'),
     ]
 
+    ALUNO_STATUS_CHOICES = [
+        ('ATIVO', 'Ativo'),
+        ('DESISTENTE', 'Desistente'),
+        ('TRANSFERIDO', 'Transferido'),
+    ]
+
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='alunos')
     nome_completo = models.CharField(max_length=255)
     sexo = models.CharField(max_length=10, choices=SEXO_CHOICES, null=True, blank=True)
@@ -71,7 +77,13 @@ class Aluno(models.Model):
     
     classe_atual = models.ForeignKey('Classe', on_delete=models.PROTECT, related_name='alunos_matriculados', null=True)
     turma_atual = models.ForeignKey('Turma', on_delete=models.SET_NULL, related_name='alunos_na_turma', null=True, blank=True)
-    ativo = models.BooleanField(default=True) # Regra: Desistência sem apagar dados
+    cargo_turma = models.CharField(max_length=100, default='Nenhum', help_text="Ex: Chefe de Turma, Adjunto, Higiene, etc.")
+    status = models.CharField(max_length=20, choices=ALUNO_STATUS_CHOICES, default='ATIVO')
+    ativo = models.BooleanField(default=True) # Regras de compatibilidade
+
+    def save(self, *args, **kwargs):
+        self.ativo = (self.status == 'ATIVO')
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "Aluno"

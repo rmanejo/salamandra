@@ -1,3 +1,4 @@
+from django.db import models
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -20,10 +21,26 @@ class NotaViewSet(viewsets.ModelViewSet):
         user = self.request.user
         qs = self.queryset.filter(school=user.school)
         
+        # Usuários administrativos/DAP vêm todas as notas da escola
+        if user.role in ['ADMIN_ESCOLA', 'DAP', 'ADMINISTRATIVO']:
+            return qs
+            
         # Professores só veem notas das suas turmas/disciplinas atribuídas
         atribuicoes = ProfessorTurmaDisciplina.objects.filter(professor__user=user)
-        turmas_ids = atribuicoes.values_list('turma_id', flat=True)
-        disciplinas_ids = atribuicoes.values_list('disciplina_id', flat=True)
+        turmas_ids = list(atribuicoes.values_list('turma_id', flat=True))
+        disciplinas_ids = list(atribuicoes.values_list('disciplina_id', flat=True))
+        
+        # Adicionar disciplinas onde o professor é Delegado de Disciplina
+        from salamandra_sge.academico.models import DelegadoDisciplina
+        delegacoes = DelegadoDisciplina.objects.filter(professor__user=user)
+        delegated_disciplinas_ids = list(delegacoes.values_list('disciplina_id', flat=True))
+        
+        if delegated_disciplinas_ids:
+            # Se for DD, ele pode ver qualquer turma dessa disciplina na escola
+            return qs.filter(
+                models.Q(turma_id__in=turmas_ids, disciplina_id__in=disciplinas_ids) |
+                models.Q(disciplina_id__in=delegated_disciplinas_ids)
+            )
         
         return qs.filter(turma_id__in=turmas_ids, disciplina_id__in=disciplinas_ids)
 
@@ -66,13 +83,13 @@ class ResumoTrimestralViewSet(viewsets.ReadOnlyModelViewSet):
         aluno_id = self.request.query_params.get('aluno')
         trimestre = self.request.query_params.get('trimestre')
 
-        if turma_id:
+        if turma_id and turma_id.isdigit():
             qs = qs.filter(turma_id=turma_id)
-        if disciplina_id:
+        if disciplina_id and disciplina_id.isdigit():
             qs = qs.filter(disciplina_id=disciplina_id)
-        if aluno_id:
+        if aluno_id and aluno_id.isdigit():
             qs = qs.filter(aluno_id=aluno_id)
-        if trimestre:
+        if trimestre and trimestre.isdigit():
             qs = qs.filter(trimestre=trimestre)
             
         return qs

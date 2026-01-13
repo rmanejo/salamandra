@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Spinner } from 'react-bootstrap';
-import { reportService } from '../../services/api';
+import { reportService, administrativeService } from '../../services/api';
 
 const AdministrativoDashboard: React.FC = () => {
     const [summary, setSummary] = useState<any>(null);
+    const [staffCount, setStaffCount] = useState(0);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -11,6 +12,9 @@ const AdministrativoDashboard: React.FC = () => {
             try {
                 const data = await reportService.getSchoolSummary();
                 setSummary(data);
+
+                const staffData = await administrativeService.getStaffMembers();
+                setStaffCount(staffData.length);
             } catch (error) {
                 console.error('Error fetching school summary:', error);
             } finally {
@@ -41,6 +45,15 @@ const AdministrativoDashboard: React.FC = () => {
                             <h6 className="text-muted small text-uppercase">Gestão de Turmas</h6>
                             <h2 className="fw-bold mb-0">{summary?.total_turmas || 0}</h2>
                             <p className="text-muted small mt-2">Atribuições ativas</p>
+                        </Card.Body>
+                    </Card>
+                </Col>
+                <Col md={4}>
+                    <Card className="shadow-sm border-0 bg-white">
+                        <Card.Body>
+                            <h6 className="text-muted small text-uppercase">Recursos Humanos</h6>
+                            <h2 className="fw-bold mb-0">{staffCount}</h2>
+                            <p className="text-muted small mt-2">Funcionários ativos</p>
                         </Card.Body>
                     </Card>
                 </Col>

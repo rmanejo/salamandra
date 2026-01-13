@@ -19,6 +19,15 @@ interface StaffMember {
     area_formacao?: string;
 }
 
+interface Evaluation {
+    id: number;
+    data_avaliacao: string;
+    pontuacao: number;
+    comentarios: string;
+    avaliador: number;
+    created_at: string;
+}
+
 interface StaffRegistrationFormData {
     email: string;
     first_name: string;
@@ -66,6 +75,13 @@ const GestaoFuncionarios: React.FC = () => {
     const [authError, setAuthError] = useState('');
     const [pendingDelete, setPendingDelete] = useState<number | null>(null);
     const [editingId, setEditingId] = useState<number | null>(null);
+
+    // Evaluation State
+    const [showEvalModal, setShowEvalModal] = useState(false);
+    const [selectedEmployee, setSelectedEmployee] = useState<StaffMember | null>(null);
+    const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
+    const [loadingEvals, setLoadingEvals] = useState(false);
+    const [newEvalData, setNewEvalData] = useState({ pontuacao: '', comentarios: '' });
 
     // Subjects List
     const [disciplinas, setDisciplinas] = useState<any[]>([]);
@@ -211,6 +227,54 @@ const GestaoFuncionarios: React.FC = () => {
         }
     };
 
+    const handleOpenEvaluations = async (member: StaffMember) => {
+        setSelectedEmployee(member);
+        setShowEvalModal(true);
+        setEvaluations([]);
+        setLoadingEvals(true);
+        setNewEvalData({ pontuacao: '', comentarios: '' });
+        try {
+            // Assuming the API supports filtering by funcionario ID or returns all and we filter
+            // Since currently api.ts uses params, let's try passing funcionario_id if backend supports it
+            // Backend ViewSet filters by school. Standard filtering might need 'funcionario' field match.
+            // Let's assume we filter client side if backend returns all for school, OR backend accepts param.
+            // Given I added 'params' to getEvaluations, I will send funcionario: member.id.
+            // If backend doesn't filter, I'll filter here.
+            const data = await administrativeService.getEvaluations({ funcionario: member.id });
+            // Check if data is paginated or list
+            const list = Array.isArray(data) ? data : data.results || [];
+            // Client-side filter to be safe if backend doesn't filter by param vertically
+            const filtered = list.filter((e: any) => e.funcionario === member.id);
+            setEvaluations(filtered);
+        } catch (err) {
+            console.error("Failed to load evaluations");
+        } finally {
+            setLoadingEvals(false);
+        }
+    };
+
+    const handleAddEvaluation = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedEmployee) return;
+        setSubmitting(true);
+        try {
+            await administrativeService.createEvaluation({
+                funcionario: selectedEmployee.id,
+                pontuacao: parseInt(newEvalData.pontuacao),
+                comentarios: newEvalData.comentarios,
+                data_avaliacao: new Date().toISOString().split('T')[0]
+            });
+            // Refresh list
+            handleOpenEvaluations(selectedEmployee);
+            // Clear form
+            setNewEvalData({ pontuacao: '', comentarios: '' });
+        } catch (err) {
+            console.error("Failed to create evaluation", err);
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
     const getRoleBadge = (role: string) => {
         switch (role) {
             case 'ADMIN_ESCOLA': return <Badge bg="danger">Director</Badge>;
@@ -282,6 +346,16 @@ const GestaoFuncionarios: React.FC = () => {
                                         {/* Protection: Hide buttons for Direcção and Secretaria */}
                                         {!['ADMIN_ESCOLA', 'DAP', 'DAE'].includes(member.user_details.role) && member.sector !== 'SECRETARIA' && (
                                             <>
+                                                {['ADMIN_ESCOLA', 'DAP', 'DAE'].includes(currentUser?.role || '') && (
+                                                    <Button
+                                                        variant="outline-info"
+                                                        size="sm"
+                                                        className="me-2"
+                                                        onClick={() => handleOpenEvaluations(member)}
+                                                    >
+                                                        Avaliar
+                                                    </Button>
+                                                )}
                                                 <Button
                                                     variant="outline-primary"
                                                     size="sm"
@@ -300,6 +374,22 @@ const GestaoFuncionarios: React.FC = () => {
                                                 </Button>
                                             </>
                                         )}
+                                        {/* Allow evaluation even for others if permission allows (e.g. evaluating secretaries) */}
+                                        {(!['ADMIN_ESCOLA', 'DAP', 'DAE'].includes(member.user_details.role) === false || member.sector === 'SECRETARIA') &&
+                                            ['ADMIN_ESCOLA', 'DAP', 'DAE'].includes(currentUser?.role || '') && (
+                                                // Ensure we don't duplicate buttons. 
+                                                // The logic above hides buttons for Directors/Secretaria. 
+                                                // We might want to allow Evaluating them? 
+                                                // Let's stick to the existing block which allows actions for non-directors.
+                                                // For simplicity, I added the 'Avaliar' button inside the existing condition block.
+                                                // If directors need to be evaluated, the condition needs to be broader.
+                                                // Current condition: !['ADMIN_ESCOLA', 'DAP', 'DAE'].includes(role) && sector !== 'SECRETARIA'
+                                                // This means Directors and Secretary cannot be edited/removed. I should probably allow Evaluating them?
+                                                // Admin permissions usually allow evaluating everyone.
+                                                // Let's add a separate block for "Avaliar" if the first block didn't render?
+                                                // Actually, let's keep it simple: Add "Avaliar" button to the existing allowed actions.
+                                                null
+                                            )}
                                     </td>
                                 </tr>
                             ))}
@@ -509,6 +599,70 @@ const GestaoFuncionarios: React.FC = () => {
                         </Button>
                     </Modal.Footer>
                 </Form>
+            </Modal>
+
+            {/* Evaluation Modal */}
+            <Modal show={showEvalModal} onHide={() => setShowEvalModal(false)} size="lg">
+                <Modal.Header closeButton>
+                    <Modal.Title>Avaliação de Desempenho: {selectedEmployee?.user_details.first_name} {selectedEmployee?.user_details.last_name}</Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    <Row>
+                        <Col md={7}>
+                            <h6 className="fw-bold mb-3">Histórico de Avaliações</h6>
+                            {loadingEvals ? (
+                                <div className="text-center py-3"><Spinner animation="border" size="sm" /></div>
+                            ) : evaluations.length === 0 ? (
+                                <p className="text-muted small">Nenhuma avaliação registada.</p>
+                            ) : (
+                                <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                                    {evaluations.map(ev => (
+                                        <Card key={ev.id} className="mb-2 border-0 shadow-sm bg-light">
+                                            <Card.Body className="p-3">
+                                                <div className="d-flex justify-content-between">
+                                                    <span className="fw-bold text-primary">{ev.pontuacao}/100</span>
+                                                    <small className="text-muted">{ev.data_avaliacao}</small>
+                                                </div>
+                                                <p className="small mb-0 mt-1">{ev.comentarios}</p>
+                                            </Card.Body>
+                                        </Card>
+                                    ))}
+                                </div>
+                            )}
+                        </Col>
+                        <Col md={5} className="border-start">
+                            <h6 className="fw-bold mb-3">Nova Avaliação</h6>
+                            <Form onSubmit={handleAddEvaluation}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Pontuação (0-100)</Form.Label>
+                                    <Form.Control
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        required
+                                        value={newEvalData.pontuacao}
+                                        onChange={e => setNewEvalData({ ...newEvalData, pontuacao: e.target.value })}
+                                    />
+                                </Form.Group>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Comentários</Form.Label>
+                                    <Form.Control
+                                        as="textarea"
+                                        rows={4}
+                                        required
+                                        value={newEvalData.comentarios}
+                                        onChange={e => setNewEvalData({ ...newEvalData, comentarios: e.target.value })}
+                                    />
+                                </Form.Group>
+                                <div className="d-grid">
+                                    <Button type="submit" variant="primary" disabled={submitting}>
+                                        {submitting ? 'Salvando...' : 'Registar Avaliação'}
+                                    </Button>
+                                </div>
+                            </Form>
+                        </Col>
+                    </Row>
+                </Modal.Body>
             </Modal>
         </Container>
     );

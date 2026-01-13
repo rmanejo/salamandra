@@ -164,6 +164,14 @@ export const administrativeService = {
     getDisciplinas: async () => {
         const response = await api.get('/instituicoes/director/get_disciplinas/');
         return response.data;
+    },
+    getEvaluations: async (params?: any) => {
+        const response = await api.get('/administrativo/avaliacoes-desempenho/', { params });
+        return response.data;
+    },
+    createEvaluation: async (data: any) => {
+        const response = await api.post('/administrativo/avaliacoes-desempenho/', data);
+        return response.data;
     }
 };
 
@@ -303,6 +311,26 @@ export const academicRoleService = {
         const response = await api.get('/academico/director-turma/minha_turma/');
         return response.data;
     },
+    getDTDetalhes: async () => {
+        const response = await api.get('/academico/director-turma/detalhes_turma/');
+        return response.data;
+    },
+    setAlunoCargo: async (data: { aluno_id: number; cargo: string }) => {
+        const response = await api.post('/academico/director-turma/atribuir_cargo_aluno/', data);
+        return response.data;
+    },
+    moverAluno: async (data: { aluno_id: number; nova_turma_id: number }) => {
+        const response = await api.post('/academico/director-turma/mover_aluno/', data);
+        return response.data;
+    },
+    definirStatusAluno: async (data: { aluno_id: number; status: 'ATIVO' | 'DESISTENTE' | 'TRANSFERIDO' }) => {
+        const response = await api.post('/academico/director-turma/definir_status_aluno/', data);
+        return response.data;
+    },
+    transferirAluno: async (data: { aluno_id: number; escola_destino: string; motivo: string }) => {
+        const response = await api.post('/academico/director-turma/transferir_aluno/', data);
+        return response.data;
+    },
     getDTAlunos: async () => {
         const response = await api.get('/academico/director-turma/alunos/');
         return response.data;
@@ -311,8 +339,16 @@ export const academicRoleService = {
         const response = await api.get('/academico/coordenador-classe/resumo_classe/');
         return response.data;
     },
+    getCCTurmas: async () => {
+        const response = await api.get('/academico/coordenador-classe/turmas_classe/');
+        return response.data;
+    },
     getDDResumoDisciplina: async () => {
         const response = await api.get('/academico/delegado-disciplina/resumo_disciplina/');
+        return response.data;
+    },
+    getDDDetalhes: async () => {
+        const response = await api.get('/academico/delegado-disciplina/detalhes_disciplina/');
         return response.data;
     },
 };

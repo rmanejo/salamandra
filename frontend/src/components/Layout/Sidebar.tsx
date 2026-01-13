@@ -60,8 +60,20 @@ const Sidebar: React.FC = () => {
 
         // PROFESSOR
         ...(user?.role === 'PROFESSOR' ? [
+            // DT Link
+            ...(user?.academic_roles?.is_dt ? [
+                { path: '/professor/minha-turma', icon: <FaUserGraduate />, label: 'Minha Turma' }
+            ] : []),
+            // CC Link
+            ...(user?.academic_roles?.is_cc ? [
+                { path: '/professor/minha-classe', icon: <FaThLarge />, label: 'Minha Classe' }
+            ] : []),
+            // DD Link
+            ...(user?.academic_roles?.is_dd ? [
+                { path: '/professor/minha-disciplina', icon: <FaFileAlt />, label: 'Minha Disciplina' }
+            ] : []),
+
             { path: '/professor/notas', icon: <FaChartBar />, label: 'Lançar Notas' },
-            { path: '/professor/faltas', icon: <FaCalendarTimes />, label: 'Lançar Faltas' },
         ] : []),
 
         // ADMINISTRATIVO

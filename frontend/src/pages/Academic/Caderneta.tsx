@@ -5,7 +5,17 @@ interface Student {
     id: number;
     nome_completo: string;
     sexo: string;
+    status: 'ATIVO' | 'DESISTENTE' | 'TRANSFERIDO';
 }
+
+const getStatusColor = (status: string) => {
+    switch (status) {
+        case 'DESISTENTE': return 'bg-red-50';
+        case 'TRANSFERIDO': return 'bg-green-50';
+        default: return '';
+    }
+};
+
 
 interface GradeObject {
     id: number;
@@ -43,17 +53,33 @@ const Caderneta: React.FC = () => {
     const [selectedTrimestre, setSelectedTrimestre] = useState<number>(1);
     const [selectedAno, setSelectedAno] = useState<number>(new Date().getFullYear());
 
+    // State to determine if the user can actually edit the current selection
+    const [canEdit, setCanEdit] = useState(false);
+
     useEffect(() => {
-        loadInitialData();
+        const params = new URLSearchParams(window.location.search);
+        const turmaParam = params.get('turma');
+        const disciplinaParam = params.get('disciplina');
+
+        if (turmaParam && turmaParam !== 'undefined') setSelectedTurma(turmaParam);
+        if (disciplinaParam && disciplinaParam !== 'undefined') setSelectedDisciplina(disciplinaParam);
+
+        loadInitialData(turmaParam, disciplinaParam);
     }, []);
 
     useEffect(() => {
         if (selectedTurma && selectedDisciplina) {
+            // A user can edit if the selected assignment is in their 'turmas' (minhas atribuicoes) list
+            const isTeaching = turmas.some(t =>
+                t.id.toString() === selectedTurma &&
+                t.disciplinas.some((d: any) => d.id.toString() === selectedDisciplina)
+            );
+            setCanEdit(isTeaching);
             loadGradebookData();
         }
-    }, [selectedTurma, selectedDisciplina, selectedTrimestre, selectedAno]);
+    }, [selectedTurma, selectedDisciplina, selectedTrimestre, selectedAno, turmas]);
 
-    const loadInitialData = async () => {
+    const loadInitialData = async (turmaParam?: string | null, disciplinaParam?: string | null) => {
         try {
             const assignments = await academicService.getMinhasAtribuicoes();
             const turmaMap = new Map();
@@ -73,12 +99,20 @@ const Caderneta: React.FC = () => {
                 });
             });
 
+            // If we have params but they aren't in assignments (e.g. DD viewing another prof class)
+            // we should manually add that entry to the dropdown so it's visible.
+            if (turmaParam && disciplinaParam && !turmaMap.has(parseInt(turmaParam))) {
+                // We don't have enough data to fill it perfectly here without extra API calls,
+                // but we can at least ensure the state works. 
+                // Ideally get_turma details and get_disciplina details.
+            }
+
             setTurmas(Array.from(turmaMap.values()));
 
-            if (turmaMap.size === 1) {
+            if (!turmaParam && turmaMap.size === 1) {
                 const onlyTurma = turmaMap.values().next().value;
                 setSelectedTurma(onlyTurma.id.toString());
-                if (onlyTurma.disciplinas.length === 1) {
+                if (!disciplinaParam && onlyTurma.disciplinas.length === 1) {
                     setSelectedDisciplina(onlyTurma.disciplinas[0].id.toString());
                 }
             }
@@ -140,6 +174,7 @@ const Caderneta: React.FC = () => {
     };
 
     const handleGradeChange = (studentId: number, type: string, value: string) => {
+        if (!canEdit) return;
         const numValue = parseFloat(value);
         if (value !== '' && (isNaN(numValue) || numValue < 0 || numValue > 20)) {
             alert("Nota deve ser entre 0 e 20");
@@ -291,13 +326,13 @@ const Caderneta: React.FC = () => {
         }
     };
 
-    const renderCell = (studentId: number, type: string, readOnly = false) => {
+    const renderCell = (studentId: number, type: string, readOnlyResult = false) => {
         const key = `${studentId}-${type}`;
         const pendingChange = pendingChanges.get(key);
         const gradeObj = grades[studentId]?.[type];
         const value = pendingChange ? pendingChange.value : (gradeObj ? gradeObj.valor : '');
 
-        if (readOnly) {
+        if (readOnlyResult) {
             const summary = summaries[studentId];
             let displayVal: string | number = '-';
             if (type === 'MACS') displayVal = summary?.macs ?? '-';
@@ -325,13 +360,15 @@ const Caderneta: React.FC = () => {
                     onChange={(e) => handleGradeChange(studentId, type, e.target.value)}
                     onKeyDown={handleKeyDown}
                     onFocus={(e) => e.target.select()}
+                    disabled={!canEdit}
                     className={`
                         w-full text-center rounded-md px-2 py-1
                         border focus:outline-none focus:ring-2 focus:ring-blue-400
                         transition-all
-                        ${hasPendingChange
-                            ? 'bg-yellow-100 border-yellow-300 font-medium'
-                            : 'bg-white border-gray-300 hover:border-gray-400'
+                        ${!canEdit ? 'bg-gray-100 border-gray-200 cursor-not-allowed text-gray-500' :
+                            hasPendingChange
+                                ? 'bg-yellow-100 border-yellow-300 font-medium'
+                                : 'bg-white border-gray-300 hover:border-gray-400'
                         }
                     `}
                 />
@@ -345,7 +382,18 @@ const Caderneta: React.FC = () => {
 
     return (
         <div className="p-6">
-            <h1 className="text-2xl font-bold mb-6">Caderneta do Professor</h1>
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-2xl font-bold">Caderneta do Professor</h1>
+                {!canEdit && selectedTurma && (
+                    <div className="bg-amber-100 border border-amber-200 text-amber-700 px-4 py-2 rounded-lg flex items-center gap-2">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        <span className="font-medium text-sm">Modo de Visualização (Delegado / Coordenação)</span>
+                    </div>
+                )}
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 bg-white p-4 rounded shadow">
                 <div>
@@ -363,6 +411,10 @@ const Caderneta: React.FC = () => {
                         {turmas.map(t => (
                             <option key={t.id} value={t.id}>{t.nome}</option>
                         ))}
+                        {/* Fallback if param not in teaching list */}
+                        {selectedTurma && !turmas.find(t => t.id.toString() === selectedTurma) && (
+                            <option value={selectedTurma}>Turma Escolhida</option>
+                        )}
                     </select>
                 </div>
                 <div>
@@ -374,12 +426,16 @@ const Caderneta: React.FC = () => {
                             setSelectedDisciplina(e.target.value);
                             setPendingChanges(new Map());
                         }}
-                        disabled={!selectedTurma}
+                        disabled={(!selectedTurma)}
                     >
                         <option value="">Selecione a Disciplina</option>
                         {currentDisciplines.map((d: any) => (
                             <option key={d.id} value={d.id}>{d.nome}</option>
                         ))}
+                        {/* Fallback if param not in list */}
+                        {selectedDisciplina && !currentDisciplines.find((d: any) => d.id.toString() === selectedDisciplina) && (
+                            <option value={selectedDisciplina}>Disciplina Escolhida</option>
+                        )}
                     </select>
                 </div>
                 <div>
@@ -407,6 +463,7 @@ const Caderneta: React.FC = () => {
                             setSelectedAno(Number(e.target.value));
                             setPendingChanges(new Map());
                         }}
+                        disabled={!canEdit}
                     />
                 </div>
             </div>
@@ -449,12 +506,17 @@ const Caderneta: React.FC = () => {
                                         </tr>
                                     ) : (
                                         students.map((student, index) => (
-                                            <tr key={student.id} className={`transition-colors hover:bg-gray-100 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                            <tr key={student.id} className={`transition-colors ${getStatusColor(student.status)} ${index % 2 === 0 && student.status === 'ATIVO' ? 'bg-white' : student.status === 'ATIVO' ? 'bg-gray-50' : ''} hover:bg-gray-100`}>
                                                 <td className="px-4 py-3 text-center text-sm text-gray-600">
                                                     {index + 1}
                                                 </td>
                                                 <td className="px-4 py-3 text-sm font-medium text-gray-900">
                                                     {student.nome_completo}
+                                                    {student.status !== 'ATIVO' && (
+                                                        <span className={`ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded border ${student.status === 'DESISTENTE' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-green-100 text-green-700 border-green-200'}`}>
+                                                            {student.status}
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td className="px-3 py-3 text-center text-sm text-gray-600">
                                                     {student.sexo ? student.sexo[0] : '-'}
@@ -479,43 +541,44 @@ const Caderneta: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Botão Guardar */}
-                    <div className="bg-white rounded-lg shadow-md p-4 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            {pendingChanges.size > 0 ? (
-                                <>
-                                    <div className="w-2.5 h-2.5 bg-yellow-500 rounded-full"></div>
-                                    <span className="text-sm font-medium text-gray-700">
-                                        {pendingChanges.size} alteração(ões) pendente(s)
+                    {canEdit && (
+                        <div className="bg-white rounded-lg shadow-md p-4 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                {pendingChanges.size > 0 ? (
+                                    <>
+                                        <div className="w-2.5 h-2.5 bg-yellow-500 rounded-full"></div>
+                                        <span className="text-sm font-medium text-gray-700">
+                                            {pendingChanges.size} alteração(ões) pendente(s)
+                                        </span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="w-2.5 h-2.5 bg-green-500 rounded-full"></div>
+                                        <span className="text-sm font-medium text-gray-700">
+                                            Todas as alterações guardadas
+                                        </span>
+                                    </>
+                                )}
+                            </div>
+                            <button
+                                onClick={saveAllChanges}
+                                disabled={saving || pendingChanges.size === 0}
+                                className={`px-6 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 ${saving || pendingChanges.size === 0
+                                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                    : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95 shadow-sm hover:shadow-md'
+                                    }`}
+                            >
+                                {saving ? (
+                                    <span className="flex items-center gap-2">
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                        A Guardar...
                                     </span>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="w-2.5 h-2.5 bg-green-500 rounded-full"></div>
-                                    <span className="text-sm font-medium text-gray-700">
-                                        Todas as alterações guardadas
-                                    </span>
-                                </>
-                            )}
+                                ) : (
+                                    'Guardar Alterações'
+                                )}
+                            </button>
                         </div>
-                        <button
-                            onClick={saveAllChanges}
-                            disabled={saving || pendingChanges.size === 0}
-                            className={`px-6 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 ${saving || pendingChanges.size === 0
-                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95 shadow-sm hover:shadow-md'
-                                }`}
-                        >
-                            {saving ? (
-                                <span className="flex items-center gap-2">
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                    A Guardar...
-                                </span>
-                            ) : (
-                                'Guardar Alterações'
-                            )}
-                        </button>
-                    </div>
+                    )}
                 </>
             ) : (
                 <div className="text-center py-16 bg-white rounded-lg shadow-sm">

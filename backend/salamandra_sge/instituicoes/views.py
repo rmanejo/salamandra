@@ -81,7 +81,7 @@ class DirectorViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'])
     def dashboard(self, request):
         school = request.user.school
-        from salamandra_sge.academico.models import Aluno, Professor, Turma, Disciplina
+        from salamandra_sge.academico.models import Aluno, Professor, Turma, Disciplina, DelegadoDisciplina, DirectorTurma
         from salamandra_sge.administrativo.models import Funcionario
         from salamandra_sge.avaliacoes.models import Nota
         from django.db.models import Avg
@@ -104,6 +104,31 @@ class DirectorViewSet(viewsets.ViewSet):
                 "media": float(percentagem)
             })
 
+        # Aproveitamento por Turma (Percentagem de Aprovados >= 10)
+        estatisticas_turmas = []
+        turmas = school.turmas.all()
+        for t in turmas:
+            notas_turma = Nota.objects.filter(school=school, aluno__turma_atual=t)
+            total_notas = notas_turma.count()
+            aprovados = notas_turma.filter(valor__gte=10).count()
+            percentagem = (aprovados / total_notas * 100) if total_notas > 0 else 0
+
+            # Buscar Director de Turma
+            dt_nome = "-"
+            # Assuming DirectorTurma is related to Turma via OneToOneField 'turma' or ForeignKey
+            # Model definition: turma = models.OneToOneField('Turma', ..., related_name='director_turma')
+            try:
+                if hasattr(t, 'director_turma'):
+                    dt_nome = t.director_turma.professor.user.get_full_name()
+            except:
+                pass
+
+            estatisticas_turmas.append({
+                "turma": t.nome,
+                "media": float(percentagem),
+                "dt_nome": dt_nome
+            })
+
         # Aproveitamento por disciplina (Percentagem de Aprovados >= 10)
         estatisticas_disciplinas = []
         disciplinas = school.disciplinas.all()
@@ -113,9 +138,16 @@ class DirectorViewSet(viewsets.ViewSet):
             aprovados = notas_disc.filter(valor__gte=10).count()
             percentagem = (aprovados / total_notas * 100) if total_notas > 0 else 0
 
+            # Buscar Delegado
+            delegado_nome = "-"
+            delegado = DelegadoDisciplina.objects.filter(school=school, disciplina=disc).order_by('-ano_letivo').first()
+            if delegado:
+                delegado_nome = delegado.professor.user.get_full_name()
+
             estatisticas_disciplinas.append({
                 "disciplina": disc.nome,
-                "media": float(percentagem)
+                "media": float(percentagem),
+                "delegado_nome": delegado_nome
             })
 
         # Aproveitamento Global da Escola (% de alunos com média >= 10)
@@ -135,5 +167,6 @@ class DirectorViewSet(viewsets.ViewSet):
             "total_tecnicos": total_tecnicos,
             "aproveitamento_global": float(aproveitamento_global),
             "aproveitamento_por_classe": estatisticas_classes,
+            "aproveitamento_por_turma": estatisticas_turmas,
             "aproveitamento_por_disciplina": estatisticas_disciplinas
         })

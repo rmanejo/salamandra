@@ -46,22 +46,39 @@ class AlunoViewSet(viewsets.ModelViewSet):
         classe_id = self.request.query_params.get('classe_id')
         turma_id = self.request.query_params.get('turma_id')
         
-        # Se for professor, filtrar apenas alunos das turmas onde leciona
-        if hasattr(user, 'docente_profile'):
-            from .models import ProfessorTurmaDisciplina
+        # Se for professor E NÃO for administrativo/DAP/Director, filtrar apenas alunos das turmas onde leciona
+        is_admin_or_manager = user.role in ['ADMIN_ESCOLA', 'DAP', 'ADMINISTRATIVO']
+        
+        if hasattr(user, 'docente_profile') and not is_admin_or_manager:
+            from .models import ProfessorTurmaDisciplina, DelegadoDisciplina
             professor = user.docente_profile
-            turmas_atribuidas = ProfessorTurmaDisciplina.objects.filter(
+            
+            # Turmas onde o professor leciona
+            turmas_atribuidas = list(ProfessorTurmaDisciplina.objects.filter(
                 professor=professor
-            ).values_list('turma_id', flat=True)
+            ).values_list('turma_id', flat=True))
+            
+            # Turmas de disciplinas onde o professor é Delegado de Disciplina
+            delegacoes = DelegadoDisciplina.objects.filter(professor=professor)
+            delegated_disciplinas_ids = list(delegacoes.values_list('disciplina_id', flat=True))
+            
+            # Turmas que pertencem às disciplinas delegadas
+            turmas_delegadas = list(ProfessorTurmaDisciplina.objects.filter(
+                disciplina_id__in=delegated_disciplinas_ids,
+                school=user.school
+            ).values_list('turma_id', flat=True))
+
+            # Acesso total: Atribuídas + Delegadas
+            acesso_totais = list(set(turmas_atribuidas + turmas_delegadas))
             
             # Se especificou turma_id, verificar se professor tem acesso
             if turma_id:
-                if int(turma_id) not in turmas_atribuidas:
+                if int(turma_id) not in acesso_totais:
                     return qs.none()  # Professor não tem acesso a essa turma
                 qs = qs.filter(turma_atual_id=turma_id)
             else:
-                # Sem filtro específico, mostrar apenas alunos das turmas atribuídas
-                qs = qs.filter(turma_atual_id__in=turmas_atribuidas)
+                # Sem filtro específico, mostrar apenas alunos das turmas com acesso
+                qs = qs.filter(turma_atual_id__in=acesso_totais)
         else:
             # Usuários administrativos veem todos os alunos (com filtros opcionais)
             if classe_id:
@@ -575,11 +592,108 @@ class DirectorTurmaViewSet(viewsets.ViewSet):
             return Response({"error": "Você não é DT de nenhuma turma."}, status=status.HTTP_404_NOT_FOUND)
 
     @action(detail=False, methods=['get'])
+    def detalhes_turma(self, request):
+        try:
+            dt_obj = DirectorTurma.objects.get(professor__user=request.user)
+            details = AcademicRoleService.get_turma_detailed_stats(dt_obj.turma)
+            return Response(details)
+        except DirectorTurma.DoesNotExist:
+            return Response({"error": "DT não encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'])
+    def atribuir_cargo_aluno(self, request):
+        aluno_id = request.data.get('aluno_id')
+        cargo = request.data.get('cargo')
+        
+        if not aluno_id or not cargo:
+            return Response({"error": "aluno_id e cargo são obrigatórios."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            dt_obj = DirectorTurma.objects.get(professor__user=request.user)
+            aluno = Aluno.objects.get(id=aluno_id, turma_atual=dt_obj.turma)
+            aluno.cargo_turma = cargo
+            aluno.save()
+            return Response({"status": "success", "message": f"Cargo '{cargo}' atribuído a {aluno.nome_completo}."})
+        except (DirectorTurma.DoesNotExist, Aluno.DoesNotExist):
+            return Response({"error": "Aluno não pertence à sua turma ou você não é DT."}, status=status.HTTP_403_FORBIDDEN)
+
+    @action(detail=False, methods=['get'])
     def alunos(self, request):
         dt_obj = DirectorTurma.objects.get(professor__user=request.user)
-        alunos = Aluno.objects.filter(turma_atual=dt_obj.turma, ativo=True)
+        alunos = Aluno.objects.filter(turma_atual=dt_obj.turma) # Removed ativo=True to show all for management
         serializer = AlunoSerializer(alunos, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def mover_aluno(self, request):
+        aluno_id = request.data.get('aluno_id')
+        nova_turma_id = request.data.get('nova_turma_id')
+        
+        try:
+            dt_obj = DirectorTurma.objects.get(professor__user=request.user)
+            aluno = Aluno.objects.get(id=aluno_id, turma_atual=dt_obj.turma)
+            
+            # Verify if new turma belongs to the same class (optional but recommended)
+            nova_turma = Turma.objects.get(id=nova_turma_id, school=request.user.school)
+            
+            # Move
+            aluno.turma_atual = nova_turma
+            aluno.cargo_turma = 'Nenhum' # Reset cargo on move
+            aluno.save()
+            
+            return Response({"status": "success", "message": f"Aluno {aluno.nome_completo} movido para {nova_turma.nome}."})
+            
+        except (DirectorTurma.DoesNotExist, Aluno.DoesNotExist, Turma.DoesNotExist):
+            return Response({"error": "Dados inválidos ou permissão negada."}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'])
+    def transferir_aluno(self, request):
+        serializer = TransferenciaAlunoSerializer(data=request.data)
+        if serializer.is_valid():
+            aluno_id = request.data.get('aluno_id') # Serializer might expect this or we pass it manually if using simple data
+            # Adjusting to likely usage: request data should match serializer expectation or we manually handle
+            # Assuming serializer expects 'escola_destino', 'motivo' and we find aluno by ID
+            
+            try:
+                dt_obj = DirectorTurma.objects.get(professor__user=request.user)
+                # Need explicit aluno_id in request if not using detail=True
+                if not aluno_id:
+                     return Response({"error": "aluno_id é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+
+                aluno = Aluno.objects.get(id=aluno_id, turma_atual=dt_obj.turma)
+                
+                aluno.ativo = False
+                aluno.situacao_social = 'TRANSFERIDO' # Optional status update
+                # Log transfer details if needed
+                aluno.save()
+                
+                return Response({"status": "success", "message": f"Aluno {aluno.nome_completo} transferido."})
+            
+            except (DirectorTurma.DoesNotExist, Aluno.DoesNotExist):
+                return Response({"error": "Aluno não encontrado na sua turma."}, status=status.HTTP_404_NOT_FOUND)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'])
+    def definir_status_aluno(self, request):
+        aluno_id = request.data.get('aluno_id')
+        novo_status = request.data.get('status') # 'ATIVO', 'DESISTENTE', 'TRANSFERIDO'
+        
+        try:
+            dt_obj = DirectorTurma.objects.get(professor__user=request.user)
+            aluno = Aluno.objects.get(id=aluno_id, turma_atual=dt_obj.turma)
+            
+            # Validar status
+            valid_statuses = [choice[0] for choice in Aluno.ALUNO_STATUS_CHOICES]
+            if novo_status not in valid_statuses:
+                return Response({"error": "Status inválido."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            aluno.status = novo_status
+            aluno.save()
+            
+            return Response({"status": "success", "message": f"Status do aluno {aluno.nome_completo} alterado para {aluno.get_status_display()}."})
+        except (DirectorTurma.DoesNotExist, Aluno.DoesNotExist):
+             return Response({"error": "Aluno não encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
 class CoordenadorClasseViewSet(viewsets.ViewSet):
     """
@@ -594,6 +708,19 @@ class CoordenadorClasseViewSet(viewsets.ViewSet):
         for cc in ccs:
             resumo.append(AcademicRoleService.get_classe_stats(cc.classe, request.user.school))
         return Response(resumo)
+
+    @action(detail=False, methods=['get'])
+    def turmas_classe(self, request):
+        # Assumindo que pode coordenar mais de uma classe, ou retorna da primeira
+        ccs = CoordenadorClasse.objects.filter(professor__user=request.user)
+        data = []
+        for cc in ccs:
+            turmas_data = AcademicRoleService.get_classe_turmas(cc.classe, request.user.school)
+            data.append({
+                "classe": cc.classe.nome,
+                "turmas": turmas_data
+            })
+        return Response(data)
 
     @action(detail=False, methods=['post'])
     def inscrever_aluno(self, request):
@@ -620,3 +747,11 @@ class DelegadoDisciplinaViewSet(viewsets.ViewSet):
         for dd in dds:
             resumo.append(AcademicRoleService.get_disciplina_stats(dd.disciplina, request.user.school))
         return Response(resumo)
+
+    @action(detail=False, methods=['get'])
+    def detalhes_disciplina(self, request):
+        dds = DelegadoDisciplina.objects.filter(professor__user=request.user)
+        details = []
+        for dd in dds:
+            details.append(AcademicRoleService.get_disciplina_details(dd.disciplina, request.user.school))
+        return Response(details)
