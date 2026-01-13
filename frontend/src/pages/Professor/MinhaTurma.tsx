@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Table, Button, Modal, Form, Spinner } from 'react-bootstrap';
-import { academicRoleService, academicService } from '../../services/api';
+import { academicRoleService, academicService, evaluationService } from '../../services/api';
 import { FaUserGraduate, FaChartPie, FaFileAlt, FaExchangeAlt, FaSchool, FaEllipsisV, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 
@@ -24,6 +24,13 @@ const getStatusTextColor = (status: string) => {
 const MinhaTurma: React.FC = () => {
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [showFaltas, setShowFaltas] = useState(false);
+    const [disciplinas, setDisciplinas] = useState<any[]>([]);
+    const [faltaDate, setFaltaDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [faltaTipo, setFaltaTipo] = useState<'INJUSTIFICADA' | 'JUSTIFICADA'>('INJUSTIFICADA');
+    const [faltaTrimestre, setFaltaTrimestre] = useState<number>(1);
+    const [faltasMap, setFaltasMap] = useState<Record<string, string>>({});
+    const [faltasSubmitting, setFaltasSubmitting] = useState(false);
 
     // Cargo Assignment Modal
     const [showModal, setShowModal] = useState(false);
@@ -54,12 +61,10 @@ const MinhaTurma: React.FC = () => {
         try {
             const details = await academicRoleService.getDTDetalhes();
             setData(details);
-            // Fetch turmas for moving (assume same class)
-            // Simplified: we'll fetch all turmas of the school and filter or use a specific endpoint if needed.
-            // For this iteration, we might need a helper to get turmas of same class.
-            // Let's retry list of turmas from general endpoint if possible or assume user knows ID.
-            // BETTER: Load basic list of turmas for the school to filter by class name if possible
-            // But DT might restricted. Let's try `academicService.getTurmas`.
+            if (details?.turma_id) {
+                const turmaDisciplinas = await academicService.getTurmaDisciplinasAtribuidas(details.turma_id);
+                setDisciplinas(turmaDisciplinas || []);
+            }
         } catch (error) {
             console.error(error);
         } finally {
@@ -84,6 +89,12 @@ const MinhaTurma: React.FC = () => {
     useEffect(() => {
         fetchData();
     }, []);
+
+    useEffect(() => {
+        if (showFaltas && data?.turma_id) {
+            loadFaltas();
+        }
+    }, [showFaltas, data?.turma_id, faltaTrimestre]);
 
     const handleEditCargo = (student: any) => {
         setSelectedStudent(student);
@@ -156,6 +167,94 @@ const MinhaTurma: React.FC = () => {
         }
     };
 
+    const handleFaltaChange = (alunoId: number, disciplinaId: number, value: string) => {
+        const key = `${alunoId}:${disciplinaId}`;
+        const normalized = value.replace(/[^\d]/g, '');
+        if (!normalized || normalized === '0') {
+            setFaltasMap((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+            return;
+        }
+        setFaltasMap((prev) => ({ ...prev, [key]: normalized }));
+    };
+
+    const handleSubmitFaltas = async () => {
+        if (!data?.turma_id) return;
+        const selections = Object.entries(faltasMap).filter(([, checked]) => checked);
+        if (selections.length === 0) {
+            alert('Selecione pelo menos uma falta para lançar.');
+            return;
+        }
+
+        setFaltasSubmitting(true);
+        try {
+            const payloads = selections.map(([key]) => {
+                const [alunoId, disciplinaId] = key.split(':').map(Number);
+                const quantidade = parseInt(faltasMap[key], 10);
+                return {
+                    aluno: alunoId,
+                    turma: data.turma_id,
+                    disciplina: disciplinaId,
+                    data: faltaDate,
+                    trimestre: faltaTrimestre,
+                    quantidade,
+                    tipo: faltaTipo,
+                    observacao: ''
+                };
+            });
+
+            const filteredPayloads = payloads.filter((payload) => payload.quantidade > 0);
+            if (filteredPayloads.length === 0) {
+                alert('Selecione pelo menos uma falta para lançar.');
+                return;
+            }
+
+            const results = await Promise.allSettled(
+                filteredPayloads.map((payload) => evaluationService.postAbsence(payload))
+            );
+
+            const failed = results.filter((r) => r.status === 'rejected').length;
+            if (failed > 0) {
+                alert(`Algumas faltas falharam (${failed}).`);
+            } else {
+                alert('Faltas lançadas com sucesso.');
+            }
+            await loadFaltas();
+        } catch (error) {
+            console.error(error);
+            alert('Erro ao lançar faltas.');
+        } finally {
+            setFaltasSubmitting(false);
+        }
+    };
+
+    const loadFaltas = async () => {
+        if (!data?.turma_id) return;
+        try {
+            const faltasData = await evaluationService.getAbsences({
+                turma_id: data.turma_id,
+                trimestre: faltaTrimestre
+            });
+            const faltasList = Array.isArray(faltasData) ? faltasData : faltasData.results || [];
+            const totals: Record<string, number> = {};
+            faltasList.forEach((falta: any) => {
+                if (!falta.aluno || !falta.disciplina) return;
+                const key = `${falta.aluno}:${falta.disciplina}`;
+                totals[key] = (totals[key] || 0) + (parseInt(falta.quantidade, 10) || 0);
+            });
+            const mapped: Record<string, string> = {};
+            Object.entries(totals).forEach(([key, value]) => {
+                if (value > 0) mapped[key] = String(value);
+            });
+            setFaltasMap(mapped);
+        } catch (error) {
+            console.error('Erro ao carregar faltas', error);
+        }
+    };
+
     if (loading) return <div className="p-5 text-center"><Spinner animation="border" /></div>;
     if (!data) return <div className="p-5 text-center">Nenhuma turma atribuída encontrada.</div>;
 
@@ -170,11 +269,14 @@ const MinhaTurma: React.FC = () => {
                     <p className="text-muted">Gerenciamento e Estatísticas Detalhadas</p>
                 </div>
                 <div className="d-flex gap-2">
-                    <Button variant="outline-danger" onClick={() => navigate('/professor/faltas')}>
-                        <FaFileAlt className="me-2" /> Lançar Faltas
-                    </Button>
                     <Button variant="outline-primary" onClick={() => navigate('/relatorios')}>
                         <FaFileAlt className="me-2" /> Ver Pauta
+                    </Button>
+                    <Button
+                        variant={showFaltas ? "danger" : "outline-danger"}
+                        onClick={() => setShowFaltas((prev) => !prev)}
+                    >
+                        <FaFileAlt className="me-2" /> {showFaltas ? 'Ocultar Faltas' : 'Lançar Faltas'}
                     </Button>
                 </div>
             </div>
@@ -206,6 +308,91 @@ const MinhaTurma: React.FC = () => {
                     </Card>
                 </Col>
             </Row>
+
+            {showFaltas && (
+                <div className="position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-50 d-flex align-items-center justify-content-center" style={{ zIndex: 1050 }}>
+                    <Card className="shadow-lg border-0 bg-white" style={{ width: '95%', height: '95%' }}>
+                        <Card.Header className="bg-white py-3 d-flex justify-content-between align-items-center">
+                            <h5 className="mb-0 fw-bold"><FaFileAlt className="me-2 text-danger" /> Lançamento de Faltas</h5>
+                            <div className="d-flex gap-2 align-items-center">
+                                <Form.Control
+                                    type="date"
+                                    value={faltaDate}
+                                    onChange={(e) => setFaltaDate(e.target.value)}
+                                />
+                                <Form.Select
+                                    value={faltaTipo}
+                                    onChange={(e) => setFaltaTipo(e.target.value as 'INJUSTIFICADA' | 'JUSTIFICADA')}
+                                >
+                                    <option value="INJUSTIFICADA">Injustificada</option>
+                                    <option value="JUSTIFICADA">Justificada</option>
+                                </Form.Select>
+                                <Form.Select
+                                    value={faltaTrimestre}
+                                    onChange={(e) => setFaltaTrimestre(Number(e.target.value))}
+                                >
+                                    <option value={1}>1º Trimestre</option>
+                                    <option value={2}>2º Trimestre</option>
+                                    <option value={3}>3º Trimestre</option>
+                                </Form.Select>
+                                <Button
+                                    variant="danger"
+                                    onClick={handleSubmitFaltas}
+                                    disabled={faltasSubmitting || disciplinas.length === 0 || (data?.lista_alunos?.length || 0) === 0}
+                                >
+                                    {faltasSubmitting ? 'A lançar...' : 'Lançar Faltas'}
+                                </Button>
+                                <Button variant="outline-secondary" onClick={() => setShowFaltas(false)}>
+                                    Fechar
+                                </Button>
+                            </div>
+                        </Card.Header>
+                        <Card.Body className="overflow-auto">
+                            {disciplinas.length === 0 ? (
+                                <div className="text-muted">Nenhuma disciplina encontrada para esta turma.</div>
+                            ) : (
+                                <div className="table-responsive">
+                                    <Table bordered hover className="mb-0 align-middle">
+                                        <thead className="bg-light">
+                                            <tr>
+                                                <th className="text-start">Aluno</th>
+                                                {disciplinas.map((disciplina: any) => (
+                                                    <th key={disciplina.id} className="text-center">
+                                                        {disciplina.nome}
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {data?.lista_alunos?.map((aluno: any) => (
+                                                <tr key={aluno.id}>
+                                                    <td className="fw-semibold">{aluno.nome}</td>
+                                                    {disciplinas.map((disciplina: any) => {
+                                                        const key = `${aluno.id}:${disciplina.id}`;
+                                                        return (
+                                                            <td key={disciplina.id} className="text-center">
+                                                                <Form.Control
+                                                                    type="number"
+                                                                    min={0}
+                                                                    step={1}
+                                                                    value={faltasMap[key] ?? ''}
+                                                                    onChange={(e) => handleFaltaChange(aluno.id, disciplina.id, e.target.value)}
+                                                                    placeholder="0"
+                                                                    className="text-center"
+                                                                />
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </Table>
+                                </div>
+                            )}
+                        </Card.Body>
+                    </Card>
+                </div>
+            )}
 
             {/* Age Chart/Table */}
             <Card className="shadow-sm border-0 mb-4">
@@ -264,7 +451,9 @@ const MinhaTurma: React.FC = () => {
                         <tbody className="divide-y divide-gray-100">
                             {data?.lista_alunos?.map((aluno: any, index: number) => (
                                 <tr key={aluno.id} className={`transition-colors ${getStatusColor(aluno.status)}`}>
-                                    <td className="px-6 py-4 text-center text-gray-500 font-medium">{index + 1}</td>
+                                    <td className="px-6 py-4 text-center text-gray-500 font-medium">
+                                        {aluno.numero_turma ?? index + 1}
+                                    </td>
                                     <td className="px-6 py-4">
                                         <div className="font-bold text-gray-900">{aluno.nome}</div>
                                         <div className="text-xs text-gray-500 font-medium">{aluno.idade} anos • {new Date(aluno.data_nascimento).toLocaleDateString()}</div>

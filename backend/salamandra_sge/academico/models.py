@@ -77,6 +77,7 @@ class Aluno(models.Model):
     
     classe_atual = models.ForeignKey('Classe', on_delete=models.PROTECT, related_name='alunos_matriculados', null=True)
     turma_atual = models.ForeignKey('Turma', on_delete=models.SET_NULL, related_name='alunos_na_turma', null=True, blank=True)
+    numero_turma = models.PositiveIntegerField(null=True, blank=True)
     cargo_turma = models.CharField(max_length=100, default='Nenhum', help_text="Ex: Chefe de Turma, Adjunto, Higiene, etc.")
     status = models.CharField(max_length=20, choices=ALUNO_STATUS_CHOICES, default='ATIVO')
     ativo = models.BooleanField(default=True) # Regras de compatibilidade

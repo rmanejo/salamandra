@@ -62,11 +62,17 @@ class FuncionarioViewSet(viewsets.ModelViewSet):
         
         # 3. Update Professor profile if exists
         try:
-            if hasattr(user, 'professor_profile'):
-                prof = user.professor_profile
+            if hasattr(user, 'docente_profile'):
+                prof = user.docente_profile
                 if 'formacao' in data: prof.formacao = data['formacao']
                 if 'area_formacao' in data: prof.area_formacao = data['area_formacao']
                 if 'tipo_provimento' in data: prof.tipo_provimento = data['tipo_provimento']
+                if 'disciplina_ids' in data:
+                    try:
+                        disciplina_ids = data.get('disciplina_ids') or []
+                        prof.disciplinas.set(disciplina_ids)
+                    except Exception:
+                        pass
                 prof.save()
         except:
             pass

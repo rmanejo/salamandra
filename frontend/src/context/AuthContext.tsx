@@ -17,6 +17,7 @@ interface User {
         is_cc: boolean;
         is_dd: boolean;
     };
+    can_lancar_notas?: boolean;
 }
 
 interface AuthContextType {
@@ -61,7 +62,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 school_name: response.data.school_name,
                 school_blocked: response.data.school_blocked,
                 district_name: response.data.district_name,
-                academic_roles: response.data.academic_roles
+                academic_roles: response.data.academic_roles,
+                can_lancar_notas: response.data.can_lancar_notas
             };
 
             // Store token if provided, otherwise use a session identifier

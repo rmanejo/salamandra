@@ -73,6 +73,11 @@ class Falta(models.Model):
         ('JUSTIFICADA', 'Justificada'),
         ('INJUSTIFICADA', 'Injustificada'),
     ]
+    TRIMESTRE_CHOICES = [
+        (1, '1º Trimestre'),
+        (2, '2º Trimestre'),
+        (3, '3º Trimestre'),
+    ]
 
     school = models.ForeignKey(School, on_delete=models.CASCADE)
     aluno = models.ForeignKey(Aluno, on_delete=models.CASCADE, related_name='faltas')
@@ -80,6 +85,8 @@ class Falta(models.Model):
     disciplina = models.ForeignKey(Disciplina, on_delete=models.CASCADE, null=True, blank=True)
     
     data = models.DateField()
+    trimestre = models.IntegerField(choices=TRIMESTRE_CHOICES, default=1)
+    quantidade = models.PositiveIntegerField(default=1)
     tipo = models.CharField(max_length=20, choices=TIPO_FALTA, default='INJUSTIFICADA')
     observacao = models.TextField(blank=True)
     

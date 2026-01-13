@@ -130,19 +130,31 @@ class FormacaoTurmaService:
                 "message": f"Total de alunos ({total_alunos}) excede a capacidade calculada mesmo criando turmas."
             }
 
-        # 4. Distribuição Equilibrada (Round-robin simplificado)
-        # Distribuímos os alunos sorted pela lista de turmas
-        idx_turma = 0
+        # 4. Distribuição por lotes (mais novos primeiro)
+        # Preenche a turma inicial até o máximo, depois segue para as próximas.
+        turmas.sort(key=lambda x: x.nome)
+        alunos_list = list(alunos)
         atribuicoes = 0
-        
-        for aluno in alunos:
-            turma_destino = turmas[idx_turma]
-            aluno.turma_atual = turma_destino
-            aluno.save()
-            
+
+        from collections import defaultdict
+        turma_alunos = defaultdict(list)
+
+        for idx, aluno in enumerate(alunos_list):
+            turma_index = idx // max_alunos
+            if turma_index >= num_turmas:
+                turma_index = num_turmas - 1
+            turma = turmas[turma_index]
+            aluno.turma_atual = turma
+            turma_alunos[turma.id].append(aluno)
             atribuicoes += 1
-            # Passa para a próxima turma
-            idx_turma = (idx_turma + 1) % num_turmas
+
+        # 5. Ordenar alfabeticamente dentro da turma e atribuir numero_turma
+        for turma_id, alunos_turma in turma_alunos.items():
+            alunos_turma.sort(key=lambda a: (a.nome_completo or "").lower())
+            for i, aluno in enumerate(alunos_turma, start=1):
+                aluno.numero_turma = i
+
+        Aluno.objects.bulk_update(alunos_list, ['turma_atual', 'numero_turma'])
 
         return {
             "status": "success",

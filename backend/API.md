@@ -117,6 +117,8 @@ Base URL: `/api/accounts/`
     "turma": 10,
     "disciplina": 5,
     "data": "2026-03-20",
+    "trimestre": 1,
+    "quantidade": 4,
     "tipo": "INJUSTIFICADA"
   }
   ```
@@ -150,6 +152,55 @@ Base URL: `/api/accounts/`
         "mfd": 10.5
       }
     ]
+  }
+  ```
+
+### 5.2 Pauta Geral da Turma (todas as disciplinas)
+- **URL**: `/api/academico/relatorios/pauta_turma_geral/`
+- **Método**: `GET`
+- **Query Params**: `turma_id`, `trimestre` (Obrigatórios)
+- **Resposta (Exemplo de estrutura)**:
+  ```json
+  {
+    "turma": "10ª A",
+    "classe": "10ª",
+    "trimestre": 1,
+    "disciplinas": [
+      { "id": 1, "nome": "Português" }
+    ],
+    "pauta": [
+      {
+        "id": 45,
+        "nome": "Abílio João",
+        "disciplinas": { "1": 12.5 },
+        "media_final": 12.5,
+        "situacao": "Aprovado"
+      }
+    ]
+  }
+  ```
+
+### 5.3 Declaração do Aluno
+- **URL**: `/api/academico/relatorios/declaracao_aluno/`
+- **Método**: `GET`
+- **Query Params**: `aluno_id` (Obrigatório)
+- **Resposta (Exemplo de estrutura)**:
+  ```json
+  {
+    "aluno": { "id": 45, "nome": "Abílio João" },
+    "turma": "10ª A",
+    "classe": "10ª",
+    "ano_letivo": 2025,
+    "disciplinas": [
+      {
+        "disciplina_id": 1,
+        "disciplina_nome": "Português",
+        "trimestres": { "1": 12.5, "2": 13.0, "3": 11.5 },
+        "mfd": 12.33,
+        "situacao": "Aprovado"
+      }
+    ],
+    "situacao_final": "Aprovado"
   }
   ```
 

@@ -185,7 +185,7 @@ const Caderneta: React.FC = () => {
         const newPendingChanges = new Map(pendingChanges);
 
         if (value === '') {
-            newPendingChanges.delete(key);
+            newPendingChanges.set(key, { studentId, type, value: '' });
         } else {
             newPendingChanges.set(key, { studentId, type, value });
         }
@@ -206,9 +206,22 @@ const Caderneta: React.FC = () => {
         try {
             for (const [, change] of pendingChanges) {
                 const { studentId, type, value } = change;
-                const numValue = parseFloat(value);
-
                 const existingNote = grades[studentId]?.[type];
+
+                if (value === '') {
+                    if (existingNote && existingNote.id) {
+                        try {
+                            await evaluationService.deleteNota(existingNote.id);
+                            successCount++;
+                        } catch (error) {
+                            console.error(`Error deleting grade for student ${studentId}, type ${type}`, error);
+                            errorCount++;
+                        }
+                    }
+                    continue;
+                }
+
+                const numValue = parseFloat(value);
                 const payload = {
                     aluno: studentId,
                     disciplina: selectedDisciplina,
@@ -339,9 +352,14 @@ const Caderneta: React.FC = () => {
             if (type === 'MT') displayVal = summary?.mt ?? '-';
             if (type === 'COM') displayVal = summary?.com ?? '-';
 
+            const mtValue = type === 'MT' ? Number(displayVal) : null;
+            const isMtLow = type === 'MT' && mtValue !== null && !Number.isNaN(mtValue) && mtValue < 9.5;
+            const isComNs = type === 'COM' && String(displayVal).toUpperCase() === 'NS';
+            const resultClass = (isMtLow || isComNs) ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700';
+
             return (
-                <td className="px-4 py-3 text-center">
-                    <div className="bg-blue-100 text-blue-700 font-semibold rounded-md py-1">
+                <td className="px-4 py-3 text-center w-44 border-r border-gray-200">
+                    <div className={`${resultClass} font-semibold rounded-md py-1`}>
                         {displayVal}
                     </div>
                 </td>
@@ -351,7 +369,7 @@ const Caderneta: React.FC = () => {
         const hasPendingChange = pendingChanges.has(key);
 
         return (
-            <td className="px-4 py-3">
+            <td className="w-44 border-r border-gray-200 p-0">
                 <input
                     type="text"
                     inputMode="decimal"
@@ -362,13 +380,13 @@ const Caderneta: React.FC = () => {
                     onFocus={(e) => e.target.select()}
                     disabled={!canEdit}
                     className={`
-                        w-full text-center rounded-md px-2 py-1
-                        border focus:outline-none focus:ring-2 focus:ring-blue-400
+                        w-full h-full text-center px-2 py-1.5 bg-transparent
+                        border-0 focus:outline-none focus:ring-2 focus:ring-blue-400
                         transition-all
                         ${!canEdit ? 'bg-gray-100 border-gray-200 cursor-not-allowed text-gray-500' :
                             hasPendingChange
-                                ? 'bg-yellow-100 border-yellow-300 font-medium'
-                                : 'bg-white border-gray-300 hover:border-gray-400'
+                                ? 'bg-yellow-100 font-medium'
+                                : 'bg-white'
                         }
                     `}
                 />
@@ -472,20 +490,20 @@ const Caderneta: React.FC = () => {
                 <>
                     <div className="bg-white rounded-lg shadow-md overflow-hidden mb-4">
                         <div className="overflow-x-auto">
-                            <table className="w-full border-collapse">
+                            <table className="w-full border-collapse border border-gray-200">
                                 <thead>
                                     <tr className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
-                                        <th className="px-4 py-3 text-center text-sm font-semibold w-12">Nº</th>
-                                        <th className="px-4 py-3 text-left text-sm font-semibold min-w-[200px]">Nome do Aluno</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-16">Sexo</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">ACS1</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">ACS2</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">ACS3</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">MAP</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">MACS</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">ACP</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">MT</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-24">COM</th>
+                                        <th className="px-4 py-3 text-center text-sm font-semibold w-12 border-r border-white/30">Nº</th>
+                                        <th className="px-4 py-3 text-left text-sm font-semibold min-w-[200px] border-r border-white/30">Nome do Aluno</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-16 border-r border-white/30">Sexo</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACS1</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACS2</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACS3</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">MAP</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">MACS</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACP</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">MT</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44">COM</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -506,11 +524,11 @@ const Caderneta: React.FC = () => {
                                         </tr>
                                     ) : (
                                         students.map((student, index) => (
-                                            <tr key={student.id} className={`transition-colors ${getStatusColor(student.status)} ${index % 2 === 0 && student.status === 'ATIVO' ? 'bg-white' : student.status === 'ATIVO' ? 'bg-gray-50' : ''} hover:bg-gray-100`}>
-                                                <td className="px-4 py-3 text-center text-sm text-gray-600">
-                                                    {index + 1}
+                                            <tr key={student.id} className={`transition-colors ${getStatusColor(student.status)} ${index % 2 === 0 && student.status === 'ATIVO' ? 'bg-white' : student.status === 'ATIVO' ? 'bg-gray-50' : ''} hover:bg-gray-100 border-b border-gray-200`}>
+                                                <td className="px-4 py-3 text-center text-sm text-gray-600 border-r border-gray-200">
+                                                    {student.numero_turma ?? index + 1}
                                                 </td>
-                                                <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                                <td className="px-4 py-3 text-sm font-medium text-gray-900 border-r border-gray-200">
                                                     {student.nome_completo}
                                                     {student.status !== 'ATIVO' && (
                                                         <span className={`ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded border ${student.status === 'DESISTENTE' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-green-100 text-green-700 border-green-200'}`}>
@@ -518,7 +536,7 @@ const Caderneta: React.FC = () => {
                                                         </span>
                                                     )}
                                                 </td>
-                                                <td className="px-3 py-3 text-center text-sm text-gray-600">
+                                                <td className="px-3 py-3 text-center text-sm text-gray-600 border-r border-gray-200">
                                                     {student.sexo ? student.sexo[0] : '-'}
                                                 </td>
 

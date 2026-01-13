@@ -7,6 +7,7 @@ class UserSerializer(serializers.ModelSerializer):
     school_blocked = serializers.BooleanField(source='school.blocked', read_only=True)
     district_name = serializers.CharField(source='district.name', read_only=True)
     academic_roles = serializers.SerializerMethodField()
+    can_lancar_notas = serializers.SerializerMethodField()
     
     class Meta:
         model = CustomUser
@@ -14,9 +15,9 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name', 
             'role', 'role_display', 'district', 'district_name',
             'school', 'school_name', 'school_blocked',
-            'is_active', 'date_joined', 'academic_roles'
+            'is_active', 'date_joined', 'academic_roles', 'can_lancar_notas'
         ]
-        read_only_fields = ['id', 'date_joined', 'role_display', 'school_name', 'school_blocked', 'district_name', 'academic_roles']
+        read_only_fields = ['id', 'date_joined', 'role_display', 'school_name', 'school_blocked', 'district_name', 'academic_roles', 'can_lancar_notas']
         extra_kwargs = {
             'email': {'required': True},
         }
@@ -27,7 +28,7 @@ class UserSerializer(serializers.ModelSerializer):
             'is_cc': False,
             'is_dd': False
         }
-        if obj.role == 'PROFESSOR' and hasattr(obj, 'docente_profile'):
+        if hasattr(obj, 'docente_profile'):
             from salamandra_sge.academico.models import DirectorTurma, CoordenadorClasse, DelegadoDisciplina
             prof = obj.docente_profile
             roles['is_dt'] = DirectorTurma.objects.filter(professor=prof).exists()
@@ -35,6 +36,37 @@ class UserSerializer(serializers.ModelSerializer):
             roles['is_dd'] = DelegadoDisciplina.objects.filter(professor=prof).exists()
         return roles
 
+    def get_can_lancar_notas(self, obj):
+        if not hasattr(obj, 'docente_profile'):
+            return False
+        from salamandra_sge.academico.models import ProfessorTurmaDisciplina
+        return ProfessorTurmaDisciplina.objects.filter(professor=obj.docente_profile).exists()
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
+
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs.get('new_password') != attrs.get('confirm_password'):
+            raise serializers.ValidationError({"confirm_password": "As senhas não coincidem."})
+        return attrs
+
+class UserCreateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id', 'email', 'first_name', 'last_name',
+            'role', 'district', 'school', 'is_active', 'password'
+        ]
+        read_only_fields = ['id']
+
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        return CustomUser.objects.create_user(password=password, **validated_data)

@@ -155,7 +155,7 @@ class AcademicRoleService:
         - Alunos por sexo e idades.
         - Lista de alunos com cargos.
         """
-        alunos = Aluno.objects.filter(turma_atual=turma).order_by('nome_completo')
+        alunos = Aluno.objects.filter(turma_atual=turma).order_by('numero_turma', 'nome_completo')
         total_alunos = alunos.count()
         
         # Gender breakdown
@@ -184,6 +184,7 @@ class AcademicRoleService:
         for a in alunos:
             lista_alunos.append({
                 "id": a.id,
+                "numero_turma": a.numero_turma,
                 "nome": a.nome_completo,
                 "sexo": a.sexo,
                 "data_nascimento": a.data_nascimento,
@@ -198,6 +199,7 @@ class AcademicRoleService:
             })
             
         return {
+            "turma_id": turma.id,
             "turma": turma.nome,
             "total_alunos": total_alunos,
             "total_homens": homens.count(),

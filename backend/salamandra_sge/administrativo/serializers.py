@@ -13,11 +13,33 @@ class UserShortSerializer(serializers.ModelSerializer):
 
 class FuncionarioSerializer(serializers.ModelSerializer):
     user_details = UserShortSerializer(source='user', read_only=True)
+    is_teacher = serializers.SerializerMethodField()
+    formacao = serializers.SerializerMethodField()
+    area_formacao = serializers.SerializerMethodField()
+    disciplina_ids = serializers.SerializerMethodField()
     
     class Meta:
         model = Funcionario
         fields = '__all__'
         read_only_fields = ['school']
+
+    def get_is_teacher(self, obj):
+        return hasattr(obj.user, 'docente_profile')
+
+    def get_formacao(self, obj):
+        if hasattr(obj.user, 'docente_profile'):
+            return obj.user.docente_profile.formacao
+        return None
+
+    def get_area_formacao(self, obj):
+        if hasattr(obj.user, 'docente_profile'):
+            return obj.user.docente_profile.area_formacao
+        return None
+
+    def get_disciplina_ids(self, obj):
+        if hasattr(obj.user, 'docente_profile'):
+            return list(obj.user.docente_profile.disciplinas.values_list('id', flat=True))
+        return []
 
 class AvaliacaoDesempenhoSerializer(serializers.ModelSerializer):
     class Meta:

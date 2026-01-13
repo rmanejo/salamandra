@@ -1,11 +1,13 @@
-from rest_framework import status, views, permissions
+from rest_framework import status, views, permissions, generics
 from rest_framework.response import Response
 from django.contrib.auth import authenticate, login, logout
-from django.views.decorators.csrf import ensure_csrf_cookie, csrf_exempt
+from django.views.decorators.csrf import ensure_csrf_cookie, csrf_protect
 from django.utils.decorators import method_decorator
 from django.middleware.csrf import get_token
 from rest_framework.authentication import SessionAuthentication
-from .serializers import UserSerializer, LoginSerializer
+from .serializers import UserSerializer, LoginSerializer, ChangePasswordSerializer, UserCreateSerializer
+from core.models import CustomUser
+from salamandra_sge.accounts.permissions import IsAdminSistema
 
 class CsrfTokenView(views.APIView):
     permission_classes = [permissions.AllowAny]
@@ -19,7 +21,7 @@ class LoginView(views.APIView):
     permission_classes = [permissions.AllowAny]
     authentication_classes = []  # No authentication required for login
     
-    @method_decorator(csrf_exempt)
+    @method_decorator(csrf_protect)
     def dispatch(self, *args, **kwargs):
         return super().dispatch(*args, **kwargs)
     
@@ -74,3 +76,39 @@ class VerifyPasswordView(views.APIView):
             return Response({"status": "success", "message": "Senha verificada"}, status=status.HTTP_200_OK)
         
         return Response({"error": "Senha incorrecta"}, status=status.HTTP_403_FORBIDDEN)
+
+class ChangePasswordView(views.APIView):
+    """
+    Permite que o utilizador autenticado altere a própria senha.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user
+        old_password = serializer.validated_data['old_password']
+        new_password = serializer.validated_data['new_password']
+
+        if not user.check_password(old_password):
+            return Response({"old_password": "Senha actual incorrecta."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save()
+        return Response({"status": "success", "message": "Senha alterada com sucesso."})
+
+class UsersView(generics.ListCreateAPIView):
+    """
+    Gestão básica de utilizadores (Admin Sistema).
+    """
+    queryset = CustomUser.objects.all().order_by('id')
+
+    def get_permissions(self):
+        return [permissions.IsAuthenticated(), IsAdminSistema()]
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return UserCreateSerializer
+        return UserSerializer

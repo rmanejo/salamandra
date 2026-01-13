@@ -56,6 +56,9 @@ const Sidebar: React.FC = () => {
             { path: '/dap/turmas', icon: <FaThLarge />, label: 'Gestão de Turmas' },
             { path: '/academico/atribuicao-professor', icon: <FaUserGraduate />, label: 'Atribuição (Por Prof.)' },
             { path: '/director/recursos', icon: <FaChalkboardTeacher />, label: 'Recursos Humanos' },
+            ...(user?.role === 'DAP' && user?.can_lancar_notas ? [
+                { path: '/professor/notas', icon: <FaChartBar />, label: 'Lançar Notas' }
+            ] : []),
         ] : []),
 
         // PROFESSOR
@@ -74,6 +77,10 @@ const Sidebar: React.FC = () => {
             ] : []),
 
             { path: '/professor/notas', icon: <FaChartBar />, label: 'Lançar Notas' },
+        ] : []),
+
+        ...(user?.role !== 'PROFESSOR' && user?.academic_roles?.is_dd ? [
+            { path: '/professor/minha-disciplina', icon: <FaFileAlt />, label: 'Minha Disciplina' }
         ] : []),
 
         // ADMINISTRATIVO

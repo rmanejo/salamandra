@@ -245,6 +245,10 @@ export const academicService = {
         const response = await api.get(`/academico/turmas/${turmaId}/disciplinas/`);
         return response.data;
     },
+    getTurmaDisciplinasAtribuidas: async (turmaId: number) => {
+        const response = await api.get(`/academico/turmas/${turmaId}/disciplinas_atribuidas/`);
+        return response.data;
+    },
     atribuirProfessor: async (turmaId: number, data: { disciplina_id: number; professor_id: number | null }) => {
         const response = await api.post(`/academico/turmas/${turmaId}/atribuir_professor/`, data);
         return response.data;
@@ -281,6 +285,10 @@ export const evaluationService = {
         const response = await api.patch(`/avaliacoes/notas/${id}/`, gradeData);
         return response.data;
     },
+    deleteNota: async (id: number) => {
+        const response = await api.delete(`/avaliacoes/notas/${id}/`);
+        return response.data;
+    },
     getResumoTrimestral: async (params?: any) => {
         const response = await api.get('/avaliacoes/resumos/', { params });
         return response.data;
@@ -300,8 +308,16 @@ export const reportService = {
         const response = await api.get('/academico/relatorios/pauta_turma/', { params });
         return response.data;
     },
+    getClassReportGeneral: async (params: { turma_id: number; trimestre: number }) => {
+        const response = await api.get('/academico/relatorios/pauta_turma_geral/', { params });
+        return response.data;
+    },
     getSchoolSummary: async () => {
         const response = await api.get('/academico/relatorios/resumo_escola/');
+        return response.data;
+    },
+    getStudentDeclaration: async (params: { aluno_id: number }) => {
+        const response = await api.get('/academico/relatorios/declaracao_aluno/', { params });
         return response.data;
     },
 };

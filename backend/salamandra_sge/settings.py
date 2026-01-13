@@ -22,11 +22,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# AVISO DE SEGURANÇA: mantenha a chave secreta usada em produção em segredo!
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-o0u-t8ziic*n)brj-c42*s*qg$9o=r)&x#ow*(uu5z(#540^ul')
-
 # AVISO DE SEGURANÇA: não execute com o modo debug ativado em produção!
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
+
+# AVISO DE SEGURANÇA: mantenha a chave secreta usada em produção em segredo!
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'django-insecure-o0u-t8ziic*n)brj-c42*s*qg$9o=r)&x#ow*(uu5z(#540^ul'
+    else:
+        raise ValueError("SECRET_KEY precisa ser definido quando DEBUG=False")
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_HOSTS') else []
 
@@ -171,7 +176,7 @@ if DEBUG:
 
 # CSRF Configuration for CORS
 CSRF_COOKIE_NAME = 'csrftoken'
-CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read the cookie
+CSRF_COOKIE_HTTPONLY = not DEBUG
 CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:5173',
@@ -179,6 +184,14 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:5173',
     'http://127.0.0.1:3000',
 ]
+
+# Security defaults (apply in production)
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SECURE_SSL_REDIRECT = (not DEBUG) and (os.getenv('SECURE_SSL_REDIRECT', 'True') == 'True')
+SECURE_HSTS_SECONDS = 0 if DEBUG else int(os.getenv('SECURE_HSTS_SECONDS', '31536000'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
 
 # Django REST Framework Configuration
 REST_FRAMEWORK = {

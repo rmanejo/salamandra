@@ -331,13 +331,13 @@ class TurmaViewSet(viewsets.ModelViewSet):
         turma = self.get_object()
         school = request.user.school
         
-        # 1. Obter todas as disciplinas da escola (Simplificação: todas disponíveis podem ser atribuídas)
+        # 1. Obter todas as disciplinas da escola
         disciplinas = Disciplina.objects.filter(school=school).order_by('nome')
         
         # 2. Obter atribuições atuais
         from .models import ProfessorTurmaDisciplina
-        atribuicoes = ProfessorTurmaDisciplina.objects.filter(turma=turma)
-        atribuicoes_map = {a.disciplina_id: a.professor for a in atribuicoes} # Map disciplina_id -> Professor obj
+        atribuicoes = ProfessorTurmaDisciplina.objects.filter(turma=turma).select_related('professor__user')
+        atribuicoes_map = {a.disciplina_id: a.professor for a in atribuicoes}
         
         resultado = []
         for disc in disciplinas:
@@ -347,6 +347,26 @@ class TurmaViewSet(viewsets.ModelViewSet):
                 "nome": disc.nome,
                 "professor_id": prof.id if prof else None,
                 "professor_nome": prof.user.get_full_name() if prof else None
+            })
+            
+        return Response(resultado, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'])
+    def disciplinas_atribuidas(self, request, pk=None):
+        """
+        Retorna apenas disciplinas com professor atribuído para esta turma.
+        """
+        turma = self.get_object()
+        from .models import ProfessorTurmaDisciplina
+        atribuicoes = ProfessorTurmaDisciplina.objects.filter(turma=turma).select_related('disciplina', 'professor__user')
+        
+        resultado = []
+        for atrib in atribuicoes:
+            resultado.append({
+                "id": atrib.disciplina.id,
+                "nome": atrib.disciplina.nome,
+                "professor_id": atrib.professor.id if atrib.professor else None,
+                "professor_nome": atrib.professor.user.get_full_name() if atrib.professor else None
             })
             
         return Response(resultado, status=status.HTTP_200_OK)
@@ -495,6 +515,27 @@ class RelatorioViewSet(viewsets.ViewSet):
     """
     permission_classes = [IsAuthenticated, IsSchoolNotBlocked]
 
+    def _is_report_admin(self, user):
+        return user.role in ['ADMIN_ESCOLA', 'DAP', 'ADMINISTRATIVO']
+
+    def _can_view_pauta(self, user, turma):
+        if self._is_report_admin(user):
+            return True
+        if user.role != 'PROFESSOR':
+            return False
+        if DirectorTurma.objects.filter(professor__user=user, turma=turma).exists():
+            return True
+        return CoordenadorClasse.objects.filter(professor__user=user, classe=turma.classe).exists()
+
+    def _can_view_declaracao(self, user, aluno):
+        if self._is_report_admin(user):
+            return True
+        if user.role != 'PROFESSOR':
+            return False
+        if not aluno.turma_atual:
+            return False
+        return DirectorTurma.objects.filter(professor__user=user, turma=aluno.turma_atual).exists()
+
     @action(detail=False, methods=['get'])
     def pauta_turma(self, request):
         turma_id = request.query_params.get('turma_id')
@@ -508,15 +549,23 @@ class RelatorioViewSet(viewsets.ViewSet):
         except (Turma.DoesNotExist, Disciplina.DoesNotExist):
             return Response({"error": "Turma ou Disciplina não encontrada."}, status=status.HTTP_404_NOT_FOUND)
 
+        if not self._can_view_pauta(request.user, turma):
+            return Response({"error": "Sem permissão para visualizar esta pauta."}, status=status.HTTP_403_FORBIDDEN)
+
+        from salamandra_sge.academico.models import ProfessorTurmaDisciplina
+        if not ProfessorTurmaDisciplina.objects.filter(turma=turma, disciplina=disciplina).exists():
+            return Response({"error": "Disciplina não atribuída a esta turma."}, status=status.HTTP_400_BAD_REQUEST)
+
         from salamandra_sge.avaliacoes.models import Nota
         from salamandra_sge.avaliacoes.services import AvaliacaoService
         
-        alunos = Aluno.objects.filter(turma_atual=turma, ativo=True)
+        alunos = Aluno.objects.filter(turma_atual=turma, ativo=True).order_by('numero_turma', 'nome_completo')
         
         pauta = []
         for aluno in alunos:
             aluno_data = {
                 "id": aluno.id,
+                "numero_turma": aluno.numero_turma,
                 "nome": aluno.nome_completo,
                 "sexo": aluno.sexo[0] if aluno.sexo else "",
                 "trimesters": {}
@@ -561,6 +610,79 @@ class RelatorioViewSet(viewsets.ViewSet):
         }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'])
+    def pauta_turma_geral(self, request):
+        turma_id = request.query_params.get('turma_id')
+        trimestre = request.query_params.get('trimestre')
+        if not all([turma_id, trimestre]):
+            return Response({"error": "turma_id e trimestre são obrigatórios."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not str(trimestre).isdigit():
+            return Response({"error": "trimestre inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            turma = Turma.objects.get(id=turma_id, school=request.user.school)
+        except Turma.DoesNotExist:
+            return Response({"error": "Turma não encontrada."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not self._can_view_pauta(request.user, turma):
+            return Response({"error": "Sem permissão para visualizar esta pauta."}, status=status.HTTP_403_FORBIDDEN)
+
+        from salamandra_sge.academico.models import ProfessorTurmaDisciplina
+        from salamandra_sge.avaliacoes.models import ResumoTrimestral
+
+        ano_letivo = turma.ano_letivo
+        disciplinas = Disciplina.objects.filter(
+            id__in=ProfessorTurmaDisciplina.objects.filter(
+                turma=turma, school=request.user.school
+            ).values_list('disciplina_id', flat=True)
+        ).order_by('nome')
+
+        if not disciplinas.exists():
+            return Response(
+                {"error": "Nenhuma disciplina atribuída a esta turma."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        resumos = ResumoTrimestral.objects.filter(
+            turma=turma,
+            ano_letivo=ano_letivo,
+            trimestre=int(trimestre)
+        )
+        resumo_map = {(r.aluno_id, r.disciplina_id): r for r in resumos}
+
+        alunos = Aluno.objects.filter(turma_atual=turma, ativo=True).order_by('nome_completo')
+        pauta = []
+
+        for aluno in alunos:
+            disciplinas_data = {}
+            mts = []
+            for disc in disciplinas:
+                resumo = resumo_map.get((aluno.id, disc.id))
+                mt_val = float(resumo.mt) if resumo and resumo.mt is not None else None
+                disciplinas_data[disc.id] = mt_val
+                if mt_val is not None:
+                    mts.append(mt_val)
+
+            media_final = (sum(mts) / len(mts)) if mts else None
+            pauta.append({
+                "id": aluno.id,
+                "nome": aluno.nome_completo,
+                "disciplinas": disciplinas_data,
+                "media_final": round(media_final, 2) if media_final is not None else None,
+                "situacao": "Aprovado" if media_final is not None and media_final >= 10 else "Reprovado" if media_final is not None else "Sem dados"
+            })
+
+        return Response({
+            "escola": request.user.school.name,
+            "turma": turma.nome,
+            "classe": turma.classe.nome,
+            "ano_letivo": ano_letivo,
+            "trimestre": int(trimestre),
+            "disciplinas": [{"id": d.id, "nome": d.nome} for d in disciplinas],
+            "pauta": pauta
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'])
     def resumo_escola(self, request):
         total_alunos = Aluno.objects.filter(school=request.user.school, ativo=True).count()
         total_turmas = Turma.objects.filter(school=request.user.school).count()
@@ -570,6 +692,91 @@ class RelatorioViewSet(viewsets.ViewSet):
             "total_alunos": total_alunos,
             "total_turmas": total_turmas,
             "total_professores": total_professores
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'])
+    def declaracao_aluno(self, request):
+        aluno_id = request.query_params.get('aluno_id')
+        if not aluno_id:
+            return Response({"error": "aluno_id é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            aluno = Aluno.objects.get(id=aluno_id, school=request.user.school)
+        except Aluno.DoesNotExist:
+            return Response({"error": "Aluno não encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not self._can_view_declaracao(request.user, aluno):
+            return Response({"error": "Sem permissão para visualizar esta declaração."}, status=status.HTTP_403_FORBIDDEN)
+
+        turma = aluno.turma_atual
+        if not turma:
+            return Response({"error": "Aluno sem turma atual."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from salamandra_sge.avaliacoes.models import ResumoTrimestral
+
+        ano_letivo = turma.ano_letivo
+        from salamandra_sge.academico.models import ProfessorTurmaDisciplina
+        disciplinas = Disciplina.objects.filter(
+            id__in=ProfessorTurmaDisciplina.objects.filter(
+                turma=turma, school=request.user.school
+            ).values_list('disciplina_id', flat=True)
+        ).order_by('nome')
+        resumos = ResumoTrimestral.objects.filter(
+            aluno=aluno,
+            ano_letivo=ano_letivo
+        )
+        resumo_map = {}
+        for r in resumos:
+            resumo_map[(r.disciplina_id, r.trimestre)] = r
+
+        disciplinas_data = []
+        overall_status = "Sem dados"
+        has_any = False
+        has_reprovado = False
+
+        for disc in disciplinas:
+            mt1 = resumo_map.get((disc.id, 1))
+            mt2 = resumo_map.get((disc.id, 2))
+            mt3 = resumo_map.get((disc.id, 3))
+
+            mts = [
+                float(mt1.mt) if mt1 and mt1.mt is not None else None,
+                float(mt2.mt) if mt2 and mt2.mt is not None else None,
+                float(mt3.mt) if mt3 and mt3.mt is not None else None,
+            ]
+            mts_values = [mt for mt in mts if mt is not None]
+            mfd = (sum(mts_values) / len(mts_values)) if mts_values else None
+
+            if mfd is not None:
+                has_any = True
+                if mfd < 10:
+                    has_reprovado = True
+
+            disciplinas_data.append({
+                "disciplina_id": disc.id,
+                "disciplina_nome": disc.nome,
+                "trimestres": {
+                    1: mts[0],
+                    2: mts[1],
+                    3: mts[2],
+                },
+                "mfd": round(mfd, 2) if mfd is not None else None,
+                "situacao": "Aprovado" if mfd is not None and mfd >= 10 else "Reprovado" if mfd is not None else "Sem dados"
+            })
+
+        if has_any:
+            overall_status = "Reprovado" if has_reprovado else "Aprovado"
+
+        return Response({
+            "aluno": {
+                "id": aluno.id,
+                "nome": aluno.nome_completo
+            },
+            "turma": turma.nome,
+            "classe": turma.classe.nome,
+            "ano_letivo": ano_letivo,
+            "disciplinas": disciplinas_data,
+            "situacao_final": overall_status
         }, status=status.HTTP_200_OK)
 
 class DirectorTurmaViewSet(viewsets.ViewSet):

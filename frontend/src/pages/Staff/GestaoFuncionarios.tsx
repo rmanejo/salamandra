@@ -15,8 +15,10 @@ interface StaffMember {
     cargo: string;
     sector: string | null;
     tipo_provimento: string;
+    is_teacher?: boolean;
     formacao?: string;
     area_formacao?: string;
+    disciplina_ids?: number[];
 }
 
 interface Evaluation {
@@ -87,8 +89,9 @@ const GestaoFuncionarios: React.FC = () => {
     const [disciplinas, setDisciplinas] = useState<any[]>([]);
 
     const handleEdit = (member: StaffMember) => {
+        const isDocente = member.user_details.role === 'PROFESSOR' || !!member.is_teacher;
         setEditingId(member.id);
-        setRegType(member.user_details.role === 'PROFESSOR' ? 'DOCENTE' : 'TECNICO');
+        setRegType(isDocente ? 'DOCENTE' : 'TECNICO');
         setFormData({
             email: member.user_details.email,
             first_name: member.user_details.first_name,
@@ -100,8 +103,8 @@ const GestaoFuncionarios: React.FC = () => {
             tipo_provimento: member.tipo_provimento,
             formacao: member.formacao || '',
             area_formacao: member.area_formacao || '',
-            is_teacher: member.user_details.role === 'PROFESSOR',
-            disciplina_ids: [] // Loading existing disciplines would require fetching detailed profile
+            is_teacher: isDocente,
+            disciplina_ids: member.disciplina_ids || []
         });
         setShowRegModal(true);
     };
@@ -343,53 +346,36 @@ const GestaoFuncionarios: React.FC = () => {
                                         </Badge>
                                     </td>
                                     <td className="text-center">
-                                        {/* Protection: Hide buttons for Direcção and Secretaria */}
-                                        {!['ADMIN_ESCOLA', 'DAP', 'DAE'].includes(member.user_details.role) && member.sector !== 'SECRETARIA' && (
-                                            <>
-                                                {['ADMIN_ESCOLA', 'DAP', 'DAE'].includes(currentUser?.role || '') && (
-                                                    <Button
-                                                        variant="outline-info"
-                                                        size="sm"
-                                                        className="me-2"
-                                                        onClick={() => handleOpenEvaluations(member)}
-                                                    >
-                                                        Avaliar
-                                                    </Button>
-                                                )}
-                                                <Button
-                                                    variant="outline-primary"
-                                                    size="sm"
-                                                    className="me-2"
-                                                    onClick={() => handleEdit(member)}
-                                                >
-                                                    Editar
-                                                </Button>
-                                                <Button
-                                                    variant="outline-danger"
-                                                    size="sm"
-                                                    onClick={() => requestDelete(member.id)}
-                                                    disabled={member.user_details.id === currentUser?.id}
-                                                >
-                                                    Remover
-                                                </Button>
-                                            </>
+                                        {['ADMIN_ESCOLA', 'DAP', 'DAE', 'ADMINISTRATIVO'].includes(currentUser?.role || '') && (
+                                            <Button
+                                                variant="outline-info"
+                                                size="sm"
+                                                className="me-2"
+                                                onClick={() => handleOpenEvaluations(member)}
+                                            >
+                                                Avaliar
+                                            </Button>
                                         )}
-                                        {/* Allow evaluation even for others if permission allows (e.g. evaluating secretaries) */}
-                                        {(!['ADMIN_ESCOLA', 'DAP', 'DAE'].includes(member.user_details.role) === false || member.sector === 'SECRETARIA') &&
-                                            ['ADMIN_ESCOLA', 'DAP', 'DAE'].includes(currentUser?.role || '') && (
-                                                // Ensure we don't duplicate buttons. 
-                                                // The logic above hides buttons for Directors/Secretaria. 
-                                                // We might want to allow Evaluating them? 
-                                                // Let's stick to the existing block which allows actions for non-directors.
-                                                // For simplicity, I added the 'Avaliar' button inside the existing condition block.
-                                                // If directors need to be evaluated, the condition needs to be broader.
-                                                // Current condition: !['ADMIN_ESCOLA', 'DAP', 'DAE'].includes(role) && sector !== 'SECRETARIA'
-                                                // This means Directors and Secretary cannot be edited/removed. I should probably allow Evaluating them?
-                                                // Admin permissions usually allow evaluating everyone.
-                                                // Let's add a separate block for "Avaliar" if the first block didn't render?
-                                                // Actually, let's keep it simple: Add "Avaliar" button to the existing allowed actions.
-                                                null
-                                            )}
+                                        {['ADMIN_ESCOLA', 'DAP', 'DAE', 'ADMINISTRATIVO'].includes(currentUser?.role || '') && (
+                                            <Button
+                                                variant="outline-primary"
+                                                size="sm"
+                                                className="me-2"
+                                                onClick={() => handleEdit(member)}
+                                            >
+                                                Editar
+                                            </Button>
+                                        )}
+                                        {!['ADMIN_ESCOLA', 'DAP', 'DAE'].includes(member.user_details.role) && member.sector !== 'SECRETARIA' && (
+                                            <Button
+                                                variant="outline-danger"
+                                                size="sm"
+                                                onClick={() => requestDelete(member.id)}
+                                                disabled={member.user_details.id === currentUser?.id}
+                                            >
+                                                Remover
+                                            </Button>
+                                        )}
                                     </td>
                                 </tr>
                             ))}

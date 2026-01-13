@@ -23,7 +23,7 @@ class IsSDEJT(permissions.BasePermission):
 
 class IsProfessor(permissions.BasePermission):
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'PROFESSOR'
+        return request.user.is_authenticated and hasattr(request.user, 'docente_profile')
 
 class IsAdministrativo(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -64,7 +64,7 @@ class IsSchoolNotBlocked(permissions.BasePermission):
 class IsDT(permissions.BasePermission):
     """Permite se o professor for Director de Turma (DT)."""
     def has_permission(self, request, view):
-        if not request.user.is_authenticated or request.user.role != 'PROFESSOR':
+        if not request.user.is_authenticated or not hasattr(request.user, 'docente_profile'):
             return False
         from salamandra_sge.academico.models import DirectorTurma
         return DirectorTurma.objects.filter(professor__user=request.user).exists()
@@ -72,7 +72,7 @@ class IsDT(permissions.BasePermission):
 class IsCC(permissions.BasePermission):
     """Permite se o professor for Coordenador de Classe (CC)."""
     def has_permission(self, request, view):
-        if not request.user.is_authenticated or request.user.role != 'PROFESSOR':
+        if not request.user.is_authenticated or not hasattr(request.user, 'docente_profile'):
             return False
         from salamandra_sge.academico.models import CoordenadorClasse
         return CoordenadorClasse.objects.filter(professor__user=request.user).exists()
@@ -80,7 +80,7 @@ class IsCC(permissions.BasePermission):
 class IsDD(permissions.BasePermission):
     """Permite se o professor for Delegado de Disciplina (DD)."""
     def has_permission(self, request, view):
-        if not request.user.is_authenticated or request.user.role != 'PROFESSOR':
+        if not request.user.is_authenticated or not hasattr(request.user, 'docente_profile'):
             return False
         from salamandra_sge.academico.models import DelegadoDisciplina
         return DelegadoDisciplina.objects.filter(professor__user=request.user).exists()

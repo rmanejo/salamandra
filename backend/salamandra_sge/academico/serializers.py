@@ -26,7 +26,7 @@ class AlunoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Aluno
         fields = '__all__'
-        read_only_fields = ['school']
+        read_only_fields = ['school', 'numero_turma']
 
     def validate_classe_atual(self, value):
         request = self.context.get('request')

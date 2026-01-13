@@ -45,12 +45,33 @@ class NotaViewSet(viewsets.ModelViewSet):
         return qs.filter(turma_id__in=turmas_ids, disciplina_id__in=disciplinas_ids)
 
     def perform_create(self, serializer):
+        self._enforce_professor_assignment(serializer.validated_data)
         instance = serializer.save(school=self.request.user.school)
         self._update_resumo(instance)
 
     def perform_update(self, serializer):
+        self._enforce_professor_assignment(serializer.validated_data, instance=serializer.instance)
         instance = serializer.save()
         self._update_resumo(instance)
+
+    def _enforce_professor_assignment(self, validated_data, instance=None):
+        user = self.request.user
+        if user.role in ['ADMIN_ESCOLA', 'DAP', 'ADMINISTRATIVO']:
+            return
+        if not hasattr(user, 'docente_profile'):
+            raise permissions.PermissionDenied("Perfil docente inválido.")
+
+        turma = validated_data.get('turma') or (instance.turma if instance else None)
+        disciplina = validated_data.get('disciplina') or (instance.disciplina if instance else None)
+        if not turma or not disciplina:
+            raise permissions.PermissionDenied("Turma e disciplina são obrigatórias.")
+
+        if not ProfessorTurmaDisciplina.objects.filter(
+            professor__user=user,
+            turma=turma,
+            disciplina=disciplina
+        ).exists():
+            raise permissions.PermissionDenied("Sem atribuição para lançar notas nesta turma/disciplina.")
 
     def _update_resumo(self, instance):
         # Update summary using service
@@ -105,7 +126,21 @@ class FaltaViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs = self.queryset.filter(school=user.school)
-        
+
+        turma_id = self.request.query_params.get('turma_id') or self.request.query_params.get('turma')
+        disciplina_id = self.request.query_params.get('disciplina_id') or self.request.query_params.get('disciplina')
+        aluno_id = self.request.query_params.get('aluno_id') or self.request.query_params.get('aluno')
+        trimestre = self.request.query_params.get('trimestre')
+
+        if turma_id and turma_id.isdigit():
+            qs = qs.filter(turma_id=turma_id)
+        if disciplina_id and disciplina_id.isdigit():
+            qs = qs.filter(disciplina_id=disciplina_id)
+        if aluno_id and aluno_id.isdigit():
+            qs = qs.filter(aluno_id=aluno_id)
+        if trimestre and trimestre.isdigit():
+            qs = qs.filter(trimestre=trimestre)
+
         if user.role == 'PROFESSOR':
             # Se for DT, vê faltas da sua turma
             try:
