@@ -90,6 +90,7 @@ Base URL: `/api/accounts/`
 ---
 
 ## 📝 4. Avaliações e Notas (`avaliacoes`)
+**Nota sobre médias**: apenas MT é arredondado para inteiro com `ROUND_HALF_UP`. MACS e MFD mantêm decimais.
 
 ### 4.1 Lançamento de Notas
 - **URL**: `/api/avaliacoes/notas/`
@@ -101,13 +102,67 @@ Base URL: `/api/accounts/`
     "turma": 10,
     "disciplina": 5,
     "trimestre": 1,
-    "tipo": "ACS",
+    "tipo": "ACS1",
     "valor": 14.50
   }
   ```
-  - `tipo`: `ACS` (Contínua), `MAP` (Prática), `ACP` (Parcial/Final Trimestre).
+  - `tipo`: `ACS1`, `ACS2`, `ACS3`, `MAP`, `ACP`.
 
-### 4.2 Lançamento de Faltas
+### 4.2 Caderneta (Upsert de Nota)
+- **URL**: `/api/avaliacoes/notas/upsert/`
+- **Método**: `PUT`
+- **Payload**:
+  ```json
+  {
+    "aluno_id": 45,
+    "turma_id": 10,
+    "disciplina_id": 5,
+    "trimestre": 1,
+    "tipo": "ACS1",
+    "valor": 14
+  }
+  ```
+- **Resposta (200 OK)**:
+  ```json
+  {
+    "nota": { "id": 120, "valor": 14, "tipo": "ACS1", "trimestre": 1, "ano_letivo": 2026 },
+    "resumo": { "macs": 14, "mt": 15, "com": "B", "mfd": 15 }
+  }
+  ```
+
+### 4.3 Caderneta (Grid)
+- **URL**: `/api/avaliacoes/caderneta/`
+- **Método**: `GET`
+- **Query Params**: `turma_id`, `disciplina_id`, `ano_letivo`
+- **Resposta (Exemplo de estrutura)**:
+  ```json
+  {
+    "turma": { "id": 10, "nome": "A", "classe": "10ª Classe" },
+    "disciplina": { "id": 5, "nome": "Matemática" },
+    "ano_letivo": 2026,
+    "rows": [
+      {
+        "aluno_id": 45,
+        "numero_turma": 3,
+        "nome_completo": "Abílio João",
+        "sexo": "HOMEM",
+        "notas": {
+          "1": { "ACS1": 10, "ACS2": 9, "ACS3": null, "MAP": null, "ACP": 9 },
+          "2": { "ACS1": null, "ACS2": null, "ACS3": null, "MAP": null, "ACP": null },
+          "3": { "ACS1": null, "ACS2": null, "ACS3": null, "MAP": null, "ACP": null }
+        },
+        "resumo": {
+          "1": { "macs": 10, "mt": 10, "com": "S" },
+          "2": { "macs": null, "mt": null, "com": null },
+          "3": { "macs": null, "mt": null, "com": null }
+        },
+        "mfd": 10
+      }
+    ]
+  }
+  ```
+
+### 4.4 Lançamento de Faltas
 - **URL**: `/api/avaliacoes/faltas/`
 - **Método**: `POST`
 - **Payload**:
@@ -143,13 +198,13 @@ Base URL: `/api/accounts/`
           "1": {
             "acs": [10.0, 9.0],
             "map": 12.0,
-            "macs": 10.33,
+            "macs": 10,
             "acp": 9.0,
-            "mt": 9.8,
+            "mt": 10,
             "com": "S"
           }
         },
-        "mfd": 10.5
+        "mfd": 10
       }
     ]
   }

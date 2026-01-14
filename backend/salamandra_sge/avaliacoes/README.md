@@ -5,7 +5,7 @@ A app `avaliacoes` gere o registo de desempenho académico dos alunos, focando-s
 ## 📋 Funcionalidades Principais
 
 - **Registo de Notas**: Lançamento de avaliações quantitativas (0 a 20 valores).
-- **Tipos de Avaliação**: Suporte para ACS, ACP, AT e Exames Finais.
+- **Tipos de Avaliação**: Suporte para ACS1/ACS2/ACS3, MAP e ACP.
 - **Histórico de Rendimento**: Rastreio de notas por aluno, disciplina e turma.
 
 ## 🗄️ Modelos Relevantes
@@ -23,9 +23,9 @@ A app `avaliacoes` gere o registo de desempenho académico dos alunos, focando-s
 
 - `admin.py`: Interface administrativa para monitorização de notas.
 - `apps.py`: Configuração da app de avaliações.
-- `models.py`: Define os modelos de `Nota` (incluindo trimestres, tipos como ACS/MAP/ACP) e `Falta`.
+- `models.py`: Define os modelos de `Nota` (incluindo trimestres, tipos como ACS1/ACS2/ACS3/MAP/ACP) e `Falta`.
 - `serializers.py`: Serializadores para intercâmbio de dados de avaliação.
-- `services.py`: **Lógica Pedagógica.** Contém as fórmulas para cálculo de médias (MACS, MT, MFD) e classificação de comportamento.
+- `services/`: **Lógica Pedagógica.** Contém as fórmulas para cálculo de médias (MACS, MT, MFD) e classificação de comportamento.
 - `tests_grading.py`: Garante que os cálculos matemáticos de médias e regras de aprovação estão corretos.
 - `urls.py`: Define os endpoints da API para avaliações.
 - `views.py`: Processa o lançamento de notas por professores e visualização de pautas.

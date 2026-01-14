@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import NotaViewSet, FaltaViewSet, ResumoTrimestralViewSet
+from .views import NotaViewSet, FaltaViewSet, ResumoTrimestralViewSet, NotaUpsertView, CadernetaView
 
 router = DefaultRouter()
 router.register(r'notas', NotaViewSet, basename='nota')
@@ -10,5 +10,7 @@ router.register(r'faltas', FaltaViewSet, basename='falta')
 app_name = 'avaliacoes'
 
 urlpatterns = [
+    path('notas/upsert/', NotaUpsertView.as_view(), name='nota-upsert'),
+    path('caderneta/', CadernetaView.as_view(), name='caderneta'),
     path('', include(router.urls)),
 ]

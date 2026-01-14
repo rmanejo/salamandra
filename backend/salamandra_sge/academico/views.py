@@ -135,30 +135,33 @@ class AlunoViewSet(viewsets.ModelViewSet):
             
             for tri in [1, 2, 3]:
                 notas = Nota.objects.filter(aluno=aluno, disciplina=disc, trimestre=tri)
-                acs_list = notas.filter(tipo='ACS').order_by('data_lancamento')[:3]
+                acs_list = notas.filter(tipo__in=['ACS1', 'ACS2', 'ACS3']).order_by('tipo')
                 map_nota = notas.filter(tipo='MAP').first()
                 acp_nota = notas.filter(tipo='ACP').first()
                 
                 macs = AvaliacaoService.calculate_macs(acs_list, map_nota)
                 mt = None
-                com = ""
+                com = None
                 
-                if acp_nota:
+                if acp_nota and acp_nota.valor is not None:
                     mt = AvaliacaoService.calculate_mt(macs, acp_nota.valor)
                     com = AvaliacaoService.get_comportamento(mt)
                 
                 disc_data["trimesters"][tri] = {
-                    "acs": [float(n.valor) for n in acs_list],
+                    "acs": [float(n.valor) for n in acs_list if n.valor is not None],
                     "map": float(map_nota.valor) if map_nota else None,
                     "macs": float(macs) if macs is not None else None,
                     "acp": float(acp_nota.valor) if acp_nota else None,
-                    "mt": float(mt) if mt is not None else None,
+                    "mt": int(mt) if mt is not None else None,
                     "com": com
                 }
             
             # MFD calculation
-            mts = [disc_data["trimesters"][t]["mt"] for t in [1, 2, 3] if disc_data["trimesters"][t]["mt"] is not None]
-            disc_data["mfd"] = float(sum(mts)/len(mts)) if mts else None
+            mt1 = disc_data["trimesters"][1]["mt"]
+            mt2 = disc_data["trimesters"][2]["mt"]
+            mt3 = disc_data["trimesters"][3]["mt"]
+            mfd = AvaliacaoService.calculate_mfd(mt1, mt2, mt3)
+            disc_data["mfd"] = float(mfd) if mfd is not None else None
             
             report.append(disc_data)
             
@@ -275,6 +278,8 @@ class TurmaViewSet(viewsets.ModelViewSet):
         """
         if self.action in ['list', 'retrieve', 'disciplinas']:
             return [IsAuthenticated(), IsSchoolNotBlocked()]
+        if self.action in ['disciplinas_atribuidas']:
+            return [IsAuthenticated(), IsSchoolNotBlocked(), (IsAdminEscola | IsDAP | IsAdministrativo | IsDT)()]
         return [IsAuthenticated(), IsSchoolNotBlocked(), (IsAdminEscola | IsDAP | IsAdministrativo)()]
 
     def get_queryset(self):
@@ -357,6 +362,11 @@ class TurmaViewSet(viewsets.ModelViewSet):
         Retorna apenas disciplinas com professor atribuído para esta turma.
         """
         turma = self.get_object()
+        if request.user.role not in ['ADMIN_ESCOLA', 'ADMIN_SISTEMA', 'DAP', 'DAE', 'ADMINISTRATIVO']:
+            from .models import DirectorTurma
+            is_dt = DirectorTurma.objects.filter(professor__user=request.user, turma=turma).exists()
+            if not is_dt:
+                return Response({"error": "Permissão negada."}, status=status.HTTP_403_FORBIDDEN)
         from .models import ProfessorTurmaDisciplina
         atribuicoes = ProfessorTurmaDisciplina.objects.filter(turma=turma).select_related('disciplina', 'professor__user')
         
@@ -573,30 +583,33 @@ class RelatorioViewSet(viewsets.ViewSet):
             
             for tri in [1, 2, 3]:
                 notas = Nota.objects.filter(aluno=aluno, disciplina=disciplina, trimestre=tri)
-                acs_list = notas.filter(tipo='ACS').order_by('data_lancamento')[:3] # Max 3 ACS as per image
+                acs_list = notas.filter(tipo__in=['ACS1', 'ACS2', 'ACS3']).order_by('tipo')
                 map_nota = notas.filter(tipo='MAP').first()
                 acp_nota = notas.filter(tipo='ACP').first()
                 
                 macs = AvaliacaoService.calculate_macs(acs_list, map_nota)
                 mt = None
-                com = ""
+                com = None
                 
-                if acp_nota:
+                if acp_nota and acp_nota.valor is not None:
                     mt = AvaliacaoService.calculate_mt(macs, acp_nota.valor)
                     com = AvaliacaoService.get_comportamento(mt)
                 
                 aluno_data["trimesters"][tri] = {
-                    "acs": [float(n.valor) for n in acs_list],
+                    "acs": [float(n.valor) for n in acs_list if n.valor is not None],
                     "map": float(map_nota.valor) if map_nota else None,
-                    "macs": float(macs),
+                    "macs": float(macs) if macs is not None else None,
                     "acp": float(acp_nota.valor) if acp_nota else None,
-                    "mt": float(mt) if mt is not None else None,
+                    "mt": int(mt) if mt is not None else None,
                     "com": com
                 }
 
             # MFD calculation
-            mts = [aluno_data["trimesters"][t]["mt"] for t in [1, 2, 3] if aluno_data["trimesters"][t]["mt"] is not None]
-            aluno_data["mfd"] = float(sum(mts)/len(mts)) if mts else None
+            mt1 = aluno_data["trimesters"][1]["mt"]
+            mt2 = aluno_data["trimesters"][2]["mt"]
+            mt3 = aluno_data["trimesters"][3]["mt"]
+            mfd = AvaliacaoService.calculate_mfd(mt1, mt2, mt3)
+            aluno_data["mfd"] = float(mfd) if mfd is not None else None
             
             pauta.append(aluno_data)
 
@@ -629,7 +642,9 @@ class RelatorioViewSet(viewsets.ViewSet):
 
         from salamandra_sge.academico.models import ProfessorTurmaDisciplina
         from salamandra_sge.avaliacoes.models import ResumoTrimestral
-
+        from salamandra_sge.avaliacoes.services import AvaliacaoService
+        
+       
         ano_letivo = turma.ano_letivo
         disciplinas = Disciplina.objects.filter(
             id__in=ProfessorTurmaDisciplina.objects.filter(
@@ -713,7 +728,8 @@ class RelatorioViewSet(viewsets.ViewSet):
             return Response({"error": "Aluno sem turma atual."}, status=status.HTTP_400_BAD_REQUEST)
 
         from salamandra_sge.avaliacoes.models import ResumoTrimestral
-
+        from salamandra_sge.avaliacoes.services import AvaliacaoService
+        
         ano_letivo = turma.ano_letivo
         from salamandra_sge.academico.models import ProfessorTurmaDisciplina
         disciplinas = Disciplina.objects.filter(
@@ -740,12 +756,11 @@ class RelatorioViewSet(viewsets.ViewSet):
             mt3 = resumo_map.get((disc.id, 3))
 
             mts = [
-                float(mt1.mt) if mt1 and mt1.mt is not None else None,
-                float(mt2.mt) if mt2 and mt2.mt is not None else None,
-                float(mt3.mt) if mt3 and mt3.mt is not None else None,
+                int(mt1.mt) if mt1 and mt1.mt is not None else None,
+                int(mt2.mt) if mt2 and mt2.mt is not None else None,
+                int(mt3.mt) if mt3 and mt3.mt is not None else None,
             ]
-            mts_values = [mt for mt in mts if mt is not None]
-            mfd = (sum(mts_values) / len(mts_values)) if mts_values else None
+            mfd = AvaliacaoService.calculate_mfd(mts[0], mts[1], mts[2])
 
             if mfd is not None:
                 has_any = True
@@ -760,7 +775,7 @@ class RelatorioViewSet(viewsets.ViewSet):
                     2: mts[1],
                     3: mts[2],
                 },
-                "mfd": round(mfd, 2) if mfd is not None else None,
+                "mfd": float(mfd) if mfd is not None else None,
                 "situacao": "Aprovado" if mfd is not None and mfd >= 10 else "Reprovado" if mfd is not None else "Sem dados"
             })
 

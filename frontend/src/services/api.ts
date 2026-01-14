@@ -293,6 +293,21 @@ export const evaluationService = {
         const response = await api.get('/avaliacoes/resumos/', { params });
         return response.data;
     },
+    upsertNota: async (payload: {
+        aluno_id: number;
+        turma_id: number;
+        disciplina_id: number;
+        trimestre: number;
+        tipo: string;
+        valor: number | null;
+    }) => {
+        const response = await api.put('/avaliacoes/notas/upsert/', payload);
+        return response.data;
+    },
+    getCaderneta: async (params: { turma_id: string | number; disciplina_id: string | number; ano_letivo: number }) => {
+        const response = await api.get('/avaliacoes/caderneta/', { params });
+        return response.data;
+    },
     postAbsence: async (absenceData: any) => {
         const response = await api.post('/avaliacoes/faltas/', absenceData);
         return response.data;

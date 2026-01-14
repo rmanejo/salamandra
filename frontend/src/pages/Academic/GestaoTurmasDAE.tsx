@@ -97,6 +97,11 @@ const GestaoTurmasDAE: React.FC = () => {
         setShowAssignModal(true);
     };
 
+    const getProfessoresPorDisciplina = (disciplinaId?: number) => {
+        if (!disciplinaId) return [];
+        return professores.filter(p => Array.isArray(p.disciplina_ids) && p.disciplina_ids.includes(disciplinaId));
+    };
+
     const handleSaveAssignment = async () => {
         if (!selectedTurma || !selectedDisciplineAssign || !assignProfessor) return;
         try {
@@ -304,10 +309,15 @@ const GestaoTurmasDAE: React.FC = () => {
                                     <Form.Label>Professor</Form.Label>
                                     <Form.Select value={assignProfessor} onChange={e => setAssignProfessor(e.target.value)}>
                                         <option value="">Selecione...</option>
-                                        {professores.map(p => (
+                                        {getProfessoresPorDisciplina(selectedDisciplineAssign?.id).map((p: any) => (
                                             <option key={p.id} value={p.id}>{p.full_name}</option>
                                         ))}
                                     </Form.Select>
+                                    {selectedDisciplineAssign && getProfessoresPorDisciplina(selectedDisciplineAssign.id).length === 0 && (
+                                        <Form.Text className="text-muted">
+                                            Nenhum professor com esta disciplina.
+                                        </Form.Text>
+                                    )}
                                 </Form.Group>
                             </Modal.Body>
                             <Modal.Footer>

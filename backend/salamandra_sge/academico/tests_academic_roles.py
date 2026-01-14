@@ -39,7 +39,7 @@ class AcademicRolesTests(TestCase):
             "aluno": self.aluno.id,
             "turma": self.turma.id,
             "disciplina": self.disc.id,
-            "tipo": "ACS",
+            "tipo": "ACS1",
             "valor": 15.0
         }
         response = self.client.post(url, data, format='json')

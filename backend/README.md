@@ -158,6 +158,10 @@ cd backend
 docker compose --profile development down
 
 docker compose --profile development up -d --build
+
+docker compose --profile development up -d salamandra_develop
+docker compose --profile development logs -f salamandra_develop
+
 ```
 
 ### 3. Acessar os Serviços

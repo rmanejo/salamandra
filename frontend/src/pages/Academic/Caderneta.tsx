@@ -1,11 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { academicService, evaluationService } from '../../services/api';
 
-interface Student {
-    id: number;
+interface GradeObject {
+    valor: number | null;
+}
+
+interface SummaryData {
+    macs?: number | null;
+    mt?: number | null;
+    com?: string | null;
+}
+
+interface CadernetaRow {
+    aluno_id: number;
+    numero_turma: number | null;
     nome_completo: string;
-    sexo: string;
+    sexo: string | null;
     status: 'ATIVO' | 'DESISTENTE' | 'TRANSFERIDO';
+    notas: Record<string, Record<string, number | null>>;
+    resumo: Record<string, SummaryData>;
+    mfd: number | null;
 }
 
 const getStatusColor = (status: string) => {
@@ -15,36 +29,28 @@ const getStatusColor = (status: string) => {
         default: return '';
     }
 };
-
-
-interface GradeObject {
-    id: number;
-    valor: number;
-    tipo: string;
-}
-
-interface StudentGrades {
-    [key: string]: GradeObject | undefined;
-}
-
-interface SummaryData {
-    macs?: number | null;
-    mt?: number | null;
-    com?: string | null;
-}
-
 interface PendingChange {
     studentId: number;
     type: string;
     value: string;
+    trimestre: number;
 }
+
+const formatDecimal = (value: number | null | undefined) => {
+    if (value === null || value === undefined) return '';
+    return String(value).replace('.', ',');
+};
+
+const parseDecimalInput = (value: string) => {
+    const normalized = value.replace(',', '.');
+    const parsed = Number(normalized);
+    return Number.isNaN(parsed) ? null : parsed;
+};
 
 const Caderneta: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [students, setStudents] = useState<Student[]>([]);
-    const [grades, setGrades] = useState<Record<number, StudentGrades>>({});
-    const [summaries, setSummaries] = useState<Record<number, SummaryData>>({});
+    const [rows, setRows] = useState<CadernetaRow[]>([]);
     const [pendingChanges, setPendingChanges] = useState<Map<string, PendingChange>>(new Map());
 
     const [turmas, setTurmas] = useState<any[]>([]);
@@ -79,6 +85,14 @@ const Caderneta: React.FC = () => {
         }
     }, [selectedTurma, selectedDisciplina, selectedTrimestre, selectedAno, turmas]);
 
+    useEffect(() => {
+        if (!selectedTurma) return;
+        const turma = turmas.find(t => t.id.toString() === selectedTurma);
+        if (turma?.ano_letivo) {
+            setSelectedAno(turma.ano_letivo);
+        }
+    }, [selectedTurma, turmas]);
+
     const loadInitialData = async (turmaParam?: string | null, disciplinaParam?: string | null) => {
         try {
             const assignments = await academicService.getMinhasAtribuicoes();
@@ -112,6 +126,7 @@ const Caderneta: React.FC = () => {
             if (!turmaParam && turmaMap.size === 1) {
                 const onlyTurma = turmaMap.values().next().value;
                 setSelectedTurma(onlyTurma.id.toString());
+                setSelectedAno(onlyTurma.ano_letivo || new Date().getFullYear());
                 if (!disciplinaParam && onlyTurma.disciplinas.length === 1) {
                     setSelectedDisciplina(onlyTurma.disciplinas[0].id.toString());
                 }
@@ -125,47 +140,12 @@ const Caderneta: React.FC = () => {
     const loadGradebookData = async () => {
         setLoading(true);
         try {
-            const studentsData = await academicService.getStudents({ turma_id: selectedTurma });
-            const studentList = studentsData.results || studentsData;
-            setStudents(studentList);
-
-            const gradesData = await evaluationService.getGrades({
+            const data = await evaluationService.getCaderneta({
                 turma_id: selectedTurma,
                 disciplina_id: selectedDisciplina,
-                trimestre: selectedTrimestre
+                ano_letivo: selectedAno
             });
-
-            const newGrades: Record<number, StudentGrades> = {};
-            const gradesList = Array.isArray(gradesData) ? gradesData : gradesData.results || [];
-
-            gradesList.forEach((nota: any) => {
-                if (!newGrades[nota.aluno]) newGrades[nota.aluno] = {};
-                newGrades[nota.aluno][nota.tipo] = {
-                    id: nota.id,
-                    valor: parseFloat(nota.valor),
-                    tipo: nota.tipo
-                };
-            });
-            setGrades(newGrades);
-
-            const summariesData = await evaluationService.getResumoTrimestral({
-                turma: selectedTurma,
-                disciplina: selectedDisciplina,
-                trimestre: selectedTrimestre
-            });
-
-            const newSummaries: Record<number, SummaryData> = {};
-            const summaryList = Array.isArray(summariesData) ? summariesData : summariesData.results || [];
-
-            summaryList.forEach((sum: any) => {
-                newSummaries[sum.aluno] = {
-                    macs: sum.macs,
-                    mt: sum.mt,
-                    com: sum.com
-                };
-            });
-            setSummaries(newSummaries);
-
+            setRows(data.rows || []);
         } catch (error) {
             console.error("Error loading gradebook", error);
         } finally {
@@ -175,19 +155,19 @@ const Caderneta: React.FC = () => {
 
     const handleGradeChange = (studentId: number, type: string, value: string) => {
         if (!canEdit) return;
-        const numValue = parseFloat(value);
-        if (value !== '' && (isNaN(numValue) || numValue < 0 || numValue > 20)) {
+        const numValue = parseDecimalInput(value);
+        if (value !== '' && (numValue === null || numValue < 0 || numValue > 20)) {
             alert("Nota deve ser entre 0 e 20");
             return;
         }
 
-        const key = `${studentId}-${type}`;
+        const key = `${studentId}-${selectedTrimestre}-${type}`;
         const newPendingChanges = new Map(pendingChanges);
 
         if (value === '') {
-            newPendingChanges.set(key, { studentId, type, value: '' });
+            newPendingChanges.set(key, { studentId, type, value: '', trimestre: selectedTrimestre });
         } else {
-            newPendingChanges.set(key, { studentId, type, value });
+            newPendingChanges.set(key, { studentId, type, value, trimestre: selectedTrimestre });
         }
 
         setPendingChanges(newPendingChanges);
@@ -205,38 +185,18 @@ const Caderneta: React.FC = () => {
 
         try {
             for (const [, change] of pendingChanges) {
-                const { studentId, type, value } = change;
-                const existingNote = grades[studentId]?.[type];
-
-                if (value === '') {
-                    if (existingNote && existingNote.id) {
-                        try {
-                            await evaluationService.deleteNota(existingNote.id);
-                            successCount++;
-                        } catch (error) {
-                            console.error(`Error deleting grade for student ${studentId}, type ${type}`, error);
-                            errorCount++;
-                        }
-                    }
-                    continue;
-                }
-
-                const numValue = parseFloat(value);
+                const { studentId, type, value, trimestre } = change;
+                const numValue = value === '' ? null : parseDecimalInput(value);
                 const payload = {
-                    aluno: studentId,
-                    disciplina: selectedDisciplina,
-                    turma: selectedTurma,
-                    trimestre: selectedTrimestre,
+                    aluno_id: studentId,
+                    disciplina_id: Number(selectedDisciplina),
+                    turma_id: Number(selectedTurma),
+                    trimestre,
                     tipo: type,
                     valor: numValue
                 };
-
                 try {
-                    if (existingNote && existingNote.id) {
-                        await evaluationService.updateNota(existingNote.id, payload);
-                    } else {
-                        await evaluationService.postGrade(payload);
-                    }
+                    await evaluationService.upsertNota(payload);
                     successCount++;
                 } catch (error) {
                     console.error(`Error saving grade for student ${studentId}, type ${type}`, error);
@@ -340,20 +300,25 @@ const Caderneta: React.FC = () => {
     };
 
     const renderCell = (studentId: number, type: string, readOnlyResult = false) => {
-        const key = `${studentId}-${type}`;
+        const key = `${studentId}-${selectedTrimestre}-${type}`;
         const pendingChange = pendingChanges.get(key);
-        const gradeObj = grades[studentId]?.[type];
-        const value = pendingChange ? pendingChange.value : (gradeObj ? gradeObj.valor : '');
+        const row = rows.find(r => r.aluno_id === studentId);
+        const baseValue = row?.notas?.[String(selectedTrimestre)]?.[type];
+        const value = pendingChange ? pendingChange.value : (baseValue ?? '');
+        const displayValue = typeof value === 'number' ? formatDecimal(value) : value;
 
         if (readOnlyResult) {
-            const summary = summaries[studentId];
+            const summary = row?.resumo?.[String(selectedTrimestre)];
             let displayVal: string | number = '-';
             if (type === 'MACS') displayVal = summary?.macs ?? '-';
             if (type === 'MT') displayVal = summary?.mt ?? '-';
             if (type === 'COM') displayVal = summary?.com ?? '-';
+            if (typeof displayVal === 'number') {
+                displayVal = formatDecimal(displayVal);
+            }
 
-            const mtValue = type === 'MT' ? Number(displayVal) : null;
-            const isMtLow = type === 'MT' && mtValue !== null && !Number.isNaN(mtValue) && mtValue < 9.5;
+            const mtValue = type === 'MT' ? parseDecimalInput(String(displayVal)) : null;
+            const isMtLow = type === 'MT' && mtValue !== null && !Number.isNaN(mtValue) && mtValue < 10;
             const isComNs = type === 'COM' && String(displayVal).toUpperCase() === 'NS';
             const resultClass = (isMtLow || isComNs) ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700';
 
@@ -373,8 +338,8 @@ const Caderneta: React.FC = () => {
                 <input
                     type="text"
                     inputMode="decimal"
-                    pattern="[0-9]*\.?[0-9]*"
-                    value={value}
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    value={displayValue}
                     onChange={(e) => handleGradeChange(studentId, type, e.target.value)}
                     onKeyDown={handleKeyDown}
                     onFocus={(e) => e.target.select()}
@@ -516,15 +481,15 @@ const Caderneta: React.FC = () => {
                                                 </div>
                                             </td>
                                         </tr>
-                                    ) : students.length === 0 ? (
+                                    ) : rows.length === 0 ? (
                                         <tr>
                                             <td colSpan={11} className="text-center py-12 text-gray-500">
                                                 Nenhum aluno encontrado nesta turma.
                                             </td>
                                         </tr>
                                     ) : (
-                                        students.map((student, index) => (
-                                            <tr key={student.id} className={`transition-colors ${getStatusColor(student.status)} ${index % 2 === 0 && student.status === 'ATIVO' ? 'bg-white' : student.status === 'ATIVO' ? 'bg-gray-50' : ''} hover:bg-gray-100 border-b border-gray-200`}>
+                                        rows.map((student, index) => (
+                                            <tr key={student.aluno_id} className={`transition-colors ${getStatusColor(student.status)} ${index % 2 === 0 && student.status === 'ATIVO' ? 'bg-white' : student.status === 'ATIVO' ? 'bg-gray-50' : ''} hover:bg-gray-100 border-b border-gray-200`}>
                                                 <td className="px-4 py-3 text-center text-sm text-gray-600 border-r border-gray-200">
                                                     {student.numero_turma ?? index + 1}
                                                 </td>
@@ -540,17 +505,17 @@ const Caderneta: React.FC = () => {
                                                     {student.sexo ? student.sexo[0] : '-'}
                                                 </td>
 
-                                                {renderCell(student.id, 'ACS1')}
-                                                {renderCell(student.id, 'ACS2')}
-                                                {renderCell(student.id, 'ACS3')}
-                                                {renderCell(student.id, 'MAP')}
+                                                {renderCell(student.aluno_id, 'ACS1')}
+                                                {renderCell(student.aluno_id, 'ACS2')}
+                                                {renderCell(student.aluno_id, 'ACS3')}
+                                                {renderCell(student.aluno_id, 'MAP')}
 
-                                                {renderCell(student.id, 'MACS', true)}
+                                                {renderCell(student.aluno_id, 'MACS', true)}
 
-                                                {renderCell(student.id, 'ACP')}
+                                                {renderCell(student.aluno_id, 'ACP')}
 
-                                                {renderCell(student.id, 'MT', true)}
-                                                {renderCell(student.id, 'COM', true)}
+                                                {renderCell(student.aluno_id, 'MT', true)}
+                                                {renderCell(student.aluno_id, 'COM', true)}
                                             </tr>
                                         ))
                                     )}

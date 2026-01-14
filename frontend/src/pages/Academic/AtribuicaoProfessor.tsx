@@ -16,6 +16,7 @@ const AtribuicaoProfessor: React.FC = () => {
     const [selectedTurma, setSelectedTurma] = useState('');
     const [turmaDisciplinas, setTurmaDisciplinas] = useState<any[]>([]);
     const [selectedDisciplina, setSelectedDisciplina] = useState('');
+    const [bulkAssigning, setBulkAssigning] = useState(false);
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -91,6 +92,47 @@ const AtribuicaoProfessor: React.FC = () => {
             setSelectedDisciplina('');
         } catch (err: any) {
             setError(err.response?.data?.error || 'Erro ao atribuir.');
+        }
+    };
+
+    const handleAssignAllFreeTurmas = async () => {
+        if (!selectedDisciplina || !selectedProfessor) return;
+        if (!window.confirm('Atribuir este professor a todas as turmas livres desta disciplina?')) return;
+
+        setBulkAssigning(true);
+        let successCount = 0;
+        let skippedCount = 0;
+        let errorCount = 0;
+
+        try {
+            for (const turma of filteredTurmas) {
+                try {
+                    const disciplinas = await academicService.getTurmaDisciplinas(turma.id);
+                    const disciplina = disciplinas.find((d: any) => d.id === parseInt(selectedDisciplina));
+                    if (!disciplina) {
+                        continue;
+                    }
+                    if (disciplina.professor_id) {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    await academicService.atribuirProfessor(turma.id, {
+                        disciplina_id: disciplina.id,
+                        professor_id: parseInt(selectedProfessor)
+                    });
+                    successCount++;
+                } catch (err) {
+                    errorCount++;
+                }
+            }
+
+            setSuccess(`Atribuições concluídas: ${successCount} sucesso(s), ${skippedCount} já ocupada(s), ${errorCount} erro(s).`);
+            fetchAssignments(selectedProfessor);
+        } catch (err: any) {
+            setError(err.response?.data?.error || 'Erro ao atribuir em massa.');
+        } finally {
+            setBulkAssigning(false);
         }
     };
 
@@ -232,6 +274,14 @@ const AtribuicaoProfessor: React.FC = () => {
                                     disabled={!selectedTurma || !selectedDisciplina}
                                 >
                                     Atribuir
+                                </Button>
+                                <Button
+                                    variant="outline-primary"
+                                    className="w-100 mt-2"
+                                    onClick={handleAssignAllFreeTurmas}
+                                    disabled={!selectedDisciplina || !selectedProfessor || bulkAssigning}
+                                >
+                                    {bulkAssigning ? 'A atribuir...' : 'Atribuir em todas as turmas livres'}
                                 </Button>
                             </Card.Body>
                         </Card>

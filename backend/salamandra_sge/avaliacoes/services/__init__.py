@@ -1,6 +1,11 @@
 from decimal import Decimal
-from django.db.models import Avg
-from .models import Nota, ResumoTrimestral
+from salamandra_sge.avaliacoes.models import Nota, ResumoTrimestral
+from salamandra_sge.avaliacoes.services.caderneta import (
+    arredondar_media,
+    arredondar_decimal,
+    calcular_com,
+    recalcular_resumo_trimestral,
+)
 
 class AvaliacaoService:
     @staticmethod
@@ -21,14 +26,14 @@ class AvaliacaoService:
         Calcula a Média das Avaliações Contínuas e Sistemáticas.
         Inclui MAP se disponível.
         """
-        values = [n.valor for n in notas_acs]
-        if nota_map:
+        values = [n.valor for n in notas_acs if n.valor is not None]
+        if nota_map and nota_map.valor is not None:
             values.append(nota_map.valor)
         
         if not values:
-            return None # Return None to distinguish from 0
-        
-        return Decimal(sum(values) / len(values))
+            return None
+
+        return arredondar_decimal(Decimal(sum(values)) / Decimal(len(values)))
 
     @staticmethod
     def calculate_mt(macs, acp_valor):
@@ -41,65 +46,27 @@ class AvaliacaoService:
         """
         if macs is None or acp_valor is None:
             return None
-        return (2 * macs + acp_valor) / 3
+        return arredondar_media((Decimal(macs) * 2 + Decimal(acp_valor)) / Decimal(3))
 
     @staticmethod
     def get_comportamento(mt):
         """
         Retorna o rótulo de comportamento baseado na Média Trimestral.
         """
-        if mt is None:
-            return ""
-        if mt <= 9.4:
-            return "NS"
-        elif mt <= 13.4:
-            return "S"
-        elif mt <= 16.4:
-            return "B"
-        elif mt <= 18.4:
-            return "MB"
-        elif mt <= 20.0:
-            return "E"
-        return ""
+        return calcular_com(mt)
 
     @staticmethod
     def update_resumo_trimestral(student, discipline, trimester, year, turma_context):
         """
         Calculates and saves the ResumoTrimestral.
         """
-        grades = Nota.objects.filter(
-            aluno=student,
-            disciplina=discipline,
-            trimestre=trimester,
-            turma__ano_letivo=year
-        )
-        
-        # Categorize grades
-        acs_list = [n for n in grades if n.tipo.startswith('ACS')]
-        map_node = next((n for n in grades if n.tipo == 'MAP'), None)
-        acp_node = next((n for n in grades if n.tipo == 'ACP'), None)
-        
-        macs = AvaliacaoService.calculate_macs(acs_list, map_node)
-        
-        mt = None
-        if macs is not None and acp_node:
-             mt = AvaliacaoService.calculate_mt(macs, acp_node.valor)
-        
-        com = AvaliacaoService.get_comportamento(mt)
-        
-        # Update DB
-        ResumoTrimestral.objects.update_or_create(
+        recalcular_resumo_trimestral(
             school=student.school,
             aluno=student,
+            turma=turma_context,
             disciplina=discipline,
             ano_letivo=year,
             trimestre=trimester,
-            defaults={
-                'turma': turma_context,
-                'macs': round(macs, 2) if macs is not None else None,
-                'mt': round(mt, 2) if mt is not None else None,
-                'com': com
-            }
         )
 
     @staticmethod
@@ -109,5 +76,5 @@ class AvaliacaoService:
         """
         mts = [mt for mt in [mt1, mt2, mt3] if mt is not None]
         if not mts:
-            return 0
-        return sum(mts) / len(mts)
+            return None
+        return arredondar_decimal(Decimal(sum(mts)) / Decimal(len(mts)))

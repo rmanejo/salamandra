@@ -27,10 +27,10 @@ class GradingSystemTests(TestCase):
         )
 
     def test_trimestral_grading_logic(self):
-        # Image row 3 example: ACS1=10.0, ACS2=9.0 -> MACS=9.5, ACP=9.0 -> MT=9 (Calculated as (2*9.5 + 9)/3 = 9.33... which rounds/truncates to 9? User spreadsheet says 9)
+        # Exemplo: ACS1=10.0, ACS2=9.0 -> MACS=9.5 (arredonda para 10), ACP=9.0 -> MT=10
         # 1. Post Grades for 1st Trimester
-        Nota.objects.create(school=self.school, aluno=self.aluno, turma=self.turma, disciplina=self.disc, tipo='ACS', trimestre=1, valor=10.0)
-        Nota.objects.create(school=self.school, aluno=self.aluno, turma=self.turma, disciplina=self.disc, tipo='ACS', trimestre=1, valor=9.0)
+        Nota.objects.create(school=self.school, aluno=self.aluno, turma=self.turma, disciplina=self.disc, tipo='ACS1', trimestre=1, valor=10.0)
+        Nota.objects.create(school=self.school, aluno=self.aluno, turma=self.turma, disciplina=self.disc, tipo='ACS2', trimestre=1, valor=9.0)
         Nota.objects.create(school=self.school, aluno=self.aluno, turma=self.turma, disciplina=self.disc, tipo='ACP', trimestre=1, valor=9.0)
         
         url = reverse('relatorio-pauta-turma')
@@ -42,17 +42,17 @@ class GradingSystemTests(TestCase):
         
         # MACS = (10 + 9) / 2 = 9.5
         self.assertEqual(tri1['macs'], 9.5)
-        # MT = (2 * 9.5 + 9) / 3 = 19 + 9 / 3 = 28 / 3 = 9.333
-        # In the image, MT is shown as 9. 
-        # COM is "NS" (9.33 <= 9.4)
-        self.assertEqual(tri1['com'], "NS")
+        # MT = (2 * 9.5 + 9) / 3 = 9.66 -> arredonda para 10
+        self.assertEqual(tri1['mt'], 10)
+        # COM é baseado no MT inteiro
+        self.assertEqual(tri1['com'], "S")
         
     def test_comportamento_labels(self):
         from salamandra_sge.avaliacoes.services import AvaliacaoService
-        self.assertEqual(AvaliacaoService.get_comportamento(9.4), "NS")
-        self.assertEqual(AvaliacaoService.get_comportamento(9.5), "S")
-        self.assertEqual(AvaliacaoService.get_comportamento(13.4), "S")
-        self.assertEqual(AvaliacaoService.get_comportamento(13.5), "B")
-        self.assertEqual(AvaliacaoService.get_comportamento(16.4), "B")
-        self.assertEqual(AvaliacaoService.get_comportamento(16.5), "MB")
-        self.assertEqual(AvaliacaoService.get_comportamento(18.5), "E")
+        self.assertEqual(AvaliacaoService.get_comportamento(9), "NS")
+        self.assertEqual(AvaliacaoService.get_comportamento(10), "S")
+        self.assertEqual(AvaliacaoService.get_comportamento(13), "S")
+        self.assertEqual(AvaliacaoService.get_comportamento(14), "B")
+        self.assertEqual(AvaliacaoService.get_comportamento(16), "B")
+        self.assertEqual(AvaliacaoService.get_comportamento(17), "MB")
+        self.assertEqual(AvaliacaoService.get_comportamento(20), "E")

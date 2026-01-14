@@ -67,6 +67,10 @@ const AtribuicaoTurma: React.FC = () => {
         }
     };
 
+    const getProfessoresPorDisciplina = (disciplinaId: number) => {
+        return professores.filter(p => Array.isArray(p.disciplina_ids) && p.disciplina_ids.includes(disciplinaId));
+    };
+
     const handleAssign = async (disciplinaId: number, professorId: string) => {
         try {
             await academicService.atribuirProfessor(parseInt(selectedTurma), {
@@ -155,12 +159,15 @@ const AtribuicaoTurma: React.FC = () => {
                                                 onChange={(e) => handleAssign(disc.id, e.target.value)}
                                             >
                                                 <option value="">Sem Professor</option>
-                                                {professores.map(p => (
+                                                {getProfessoresPorDisciplina(disc.id).map((p: any) => (
                                                     <option key={p.id} value={p.id}>
                                                         {p.full_name}
                                                     </option>
                                                 ))}
                                             </Form.Select>
+                                            {getProfessoresPorDisciplina(disc.id).length === 0 && (
+                                                <div className="small text-muted mt-1">Sem professores para esta disciplina.</div>
+                                            )}
                                         </td>
                                     </tr>
                                 ))

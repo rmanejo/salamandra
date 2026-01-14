@@ -39,14 +39,18 @@ class ProfessorSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source='user.get_full_name', read_only=True)
     nome_com_cargos = serializers.SerializerMethodField()
     disciplinas_nomes = serializers.SerializerMethodField()
+    disciplina_ids = serializers.SerializerMethodField()
 
     class Meta:
         model = Professor
-        fields = ['id', 'user', 'user_email', 'full_name', 'nome_com_cargos', 'disciplinas_nomes', 'anos_servico', 'tipo_provimento', 'formacao', 'area_formacao']
+        fields = ['id', 'user', 'user_email', 'full_name', 'nome_com_cargos', 'disciplinas_nomes', 'disciplina_ids', 'anos_servico', 'tipo_provimento', 'formacao', 'area_formacao']
         read_only_fields = ['school']
 
     def get_disciplinas_nomes(self, obj):
         return ", ".join([d.nome for d in obj.disciplinas.all()]) or "-"
+
+    def get_disciplina_ids(self, obj):
+        return list(obj.disciplinas.values_list('id', flat=True))
 
     def get_nome_com_cargos(self, obj):
         cargos = []

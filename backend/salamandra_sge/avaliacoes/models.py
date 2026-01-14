@@ -26,15 +26,27 @@ class Nota(models.Model):
     
     tipo = models.CharField(max_length=10, choices=TIPOS_AVALIACAO)
     trimestre = models.IntegerField(choices=TRIMESTRE_CHOICES, default=1)
-    valor = models.DecimalField(max_digits=4, decimal_places=2)
+    ano_letivo = models.IntegerField(null=True, blank=True)
+    valor = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
     data_lancamento = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Nota"
         verbose_name_plural = "Notas"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['school', 'aluno', 'turma', 'disciplina', 'ano_letivo', 'trimestre', 'tipo'],
+                name='unique_nota_por_contexto'
+            )
+        ]
 
     def __str__(self):
         return f"{self.aluno} - {self.disciplina}: {self.valor}"
+
+    def save(self, *args, **kwargs):
+        if not self.ano_letivo and self.turma:
+            self.ano_letivo = self.turma.ano_letivo
+        super().save(*args, **kwargs)
 
 
 class ResumoTrimestral(models.Model):
