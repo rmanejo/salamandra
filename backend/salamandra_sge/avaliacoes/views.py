@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.http import HttpResponse
 from salamandra_sge.accounts.permissions import IsProfessor, IsDT, IsSchoolNotBlocked
 from .models import Nota, Falta, ResumoTrimestral
 from .serializers import NotaSerializer, FaltaSerializer, ResumoTrimestralSerializer, NotaUpsertSerializer
@@ -15,6 +16,8 @@ from salamandra_sge.avaliacoes.services.caderneta import (
     arredondar_media,
     arredondar_decimal,
 )
+from salamandra_sge.relatorios.services import ReportService
+from salamandra_sge.relatorios import xlsx as report_xlsx
 
 class NotaViewSet(viewsets.ModelViewSet):
     """
@@ -52,11 +55,13 @@ class NotaViewSet(viewsets.ModelViewSet):
         return qs.filter(turma_id__in=turmas_ids, disciplina_id__in=disciplinas_ids)
 
     def perform_create(self, serializer):
+        self._enforce_period(serializer.validated_data)
         self._enforce_professor_assignment(serializer.validated_data)
         instance = serializer.save(school=self.request.user.school)
         self._update_resumo(instance)
 
     def perform_update(self, serializer):
+        self._enforce_period(serializer.validated_data, instance=serializer.instance)
         self._enforce_professor_assignment(serializer.validated_data, instance=serializer.instance)
         instance = serializer.save()
         self._update_resumo(instance)
@@ -79,6 +84,22 @@ class NotaViewSet(viewsets.ModelViewSet):
             disciplina=disciplina
         ).exists():
             raise permissions.PermissionDenied("Sem atribuição para lançar notas nesta turma/disciplina.")
+
+    def _enforce_period(self, validated_data, instance=None):
+        user = self.request.user
+        if user.role not in ['ADMIN_ESCOLA', 'DAP', 'ADMINISTRATIVO']:
+            raise permissions.PermissionDenied("Sem permissão para lançar notas.")
+
+        school = user.school
+        if not school or not school.current_ano_letivo or not school.current_trimestre:
+            raise permissions.PermissionDenied("Período letivo não definido.")
+
+        turma = validated_data.get('turma') or (instance.turma if instance else None)
+        trimestre = validated_data.get('trimestre') or (instance.trimestre if instance else None)
+        ano_letivo = turma.ano_letivo if turma else (instance.ano_letivo if instance else None)
+
+        if ano_letivo != school.current_ano_letivo or int(trimestre) != int(school.current_trimestre):
+            raise permissions.PermissionDenied("Período não editável.")
 
     def _update_resumo(self, instance):
         # Update summary using service
@@ -162,7 +183,28 @@ class FaltaViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        self._enforce_period(serializer.validated_data)
         serializer.save(school=self.request.user.school)
+
+    def perform_update(self, serializer):
+        self._enforce_period(serializer.validated_data, instance=serializer.instance)
+        serializer.save()
+
+    def _enforce_period(self, validated_data, instance=None):
+        user = self.request.user
+        if user.role not in ['ADMIN_ESCOLA', 'DAP', 'ADMINISTRATIVO']:
+            raise permissions.PermissionDenied("Sem permissão para lançar faltas.")
+
+        school = user.school
+        if not school or not school.current_ano_letivo or not school.current_trimestre:
+            raise permissions.PermissionDenied("Período letivo não definido.")
+
+        turma = validated_data.get('turma') or (instance.turma if instance else None)
+        trimestre = validated_data.get('trimestre') or (instance.trimestre if instance else None)
+        ano_letivo = turma.ano_letivo if turma else None
+
+        if ano_letivo != school.current_ano_letivo or int(trimestre) != int(school.current_trimestre):
+            raise permissions.PermissionDenied("Período não editável.")
 
 
 class NotaUpsertView(APIView):
@@ -176,8 +218,8 @@ class NotaUpsertView(APIView):
         serializer.is_valid(raise_exception=True)
 
         user = request.user
-        if user.role not in ['ADMIN_ESCOLA', 'DAP', 'ADMINISTRATIVO'] and not hasattr(user, 'docente_profile'):
-            return Response({"error": "Perfil docente inválido."}, status=status.HTTP_403_FORBIDDEN)
+        if user.role not in ['ADMIN_ESCOLA', 'DAP', 'ADMINISTRATIVO']:
+            return Response({"error": "Sem permissão para lançar notas."}, status=status.HTTP_403_FORBIDDEN)
 
         turma = Turma.objects.filter(id=serializer.validated_data['turma_id'], school=user.school).first()
         disciplina = Disciplina.objects.filter(
@@ -202,6 +244,11 @@ class NotaUpsertView(APIView):
 
         ano_letivo = turma.ano_letivo
         trimestre = serializer.validated_data['trimestre']
+        school = user.school
+        if not school or not school.current_ano_letivo or not school.current_trimestre:
+            return Response({"error": "Período letivo não definido."}, status=status.HTTP_403_FORBIDDEN)
+        if ano_letivo != school.current_ano_letivo or int(trimestre) != int(school.current_trimestre):
+            return Response({"error": "Período não editável."}, status=status.HTTP_403_FORBIDDEN)
         tipo = serializer.validated_data['tipo']
         valor = serializer.validated_data.get('valor')
 
@@ -262,84 +309,32 @@ class CadernetaView(APIView):
     permission_classes = [IsAuthenticated, IsSchoolNotBlocked]
 
     def get(self, request):
-        turma_id = request.query_params.get('turma_id')
-        disciplina_id = request.query_params.get('disciplina_id')
-        ano_letivo = request.query_params.get('ano_letivo')
-
-        if not all([turma_id, disciplina_id, ano_letivo]):
-            return Response(
-                {"error": "turma_id, disciplina_id e ano_letivo são obrigatórios."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if not str(ano_letivo).isdigit():
-            return Response({"error": "ano_letivo inválido."}, status=status.HTTP_400_BAD_REQUEST)
-
-        turma = Turma.objects.filter(id=turma_id, school=request.user.school).first()
-        disciplina = Disciplina.objects.filter(id=disciplina_id, school=request.user.school).first()
-        if not turma or not disciplina:
-            return Response({"error": "Turma ou disciplina não encontrada."}, status=status.HTTP_404_NOT_FOUND)
-
-        alunos = list(Aluno.objects.filter(turma_atual=turma))
-        alunos.sort(key=lambda a: (a.numero_turma is None, a.numero_turma or 0, a.nome_completo))
-
-        notas = Nota.objects.filter(
-            turma=turma,
-            disciplina=disciplina,
-            ano_letivo=int(ano_letivo),
-            aluno__in=alunos
+        report = ReportService.caderneta(
+            user=request.user,
+            turma_id=request.query_params.get('turma_id'),
+            disciplina_id=request.query_params.get('disciplina_id'),
+            ano_letivo=request.query_params.get('ano_letivo'),
         )
-        resumos = ResumoTrimestral.objects.filter(
-            turma=turma,
-            disciplina=disciplina,
-            ano_letivo=int(ano_letivo),
-            aluno__in=alunos
+        return Response(report, status=status.HTTP_200_OK)
+
+
+class CadernetaXLSXView(APIView):
+    """
+    Retorna a caderneta da turma/disciplinas em XLSX.
+    """
+    permission_classes = [IsAuthenticated, IsSchoolNotBlocked]
+
+    def get(self, request):
+        report = ReportService.caderneta(
+            user=request.user,
+            turma_id=request.query_params.get('turma_id'),
+            disciplina_id=request.query_params.get('disciplina_id'),
+            ano_letivo=request.query_params.get('ano_letivo'),
         )
-
-        notas_map = {(n.aluno_id, n.trimestre, n.tipo): n.valor for n in notas}
-        resumo_map = {(r.aluno_id, r.trimestre): r for r in resumos}
-
-        rows = []
-        for aluno in alunos:
-            notas_payload = {}
-            resumo_payload = {}
-            mts = []
-            for tri in [1, 2, 3]:
-                notas_payload[str(tri)] = {
-                    "ACS1": float(notas_map.get((aluno.id, tri, "ACS1"))) if notas_map.get((aluno.id, tri, "ACS1")) is not None else None,
-                    "ACS2": float(notas_map.get((aluno.id, tri, "ACS2"))) if notas_map.get((aluno.id, tri, "ACS2")) is not None else None,
-                    "ACS3": float(notas_map.get((aluno.id, tri, "ACS3"))) if notas_map.get((aluno.id, tri, "ACS3")) is not None else None,
-                    "MAP": float(notas_map.get((aluno.id, tri, "MAP"))) if notas_map.get((aluno.id, tri, "MAP")) is not None else None,
-                    "ACP": float(notas_map.get((aluno.id, tri, "ACP"))) if notas_map.get((aluno.id, tri, "ACP")) is not None else None,
-                }
-
-                resumo = resumo_map.get((aluno.id, tri))
-                resumo_payload[str(tri)] = {
-                    "macs": float(resumo.macs) if resumo and resumo.macs is not None else None,
-                    "mt": int(resumo.mt) if resumo and resumo.mt is not None else None,
-                    "com": resumo.com if resumo else None,
-                }
-                if resumo and resumo.mt is not None:
-                    mts.append(int(resumo.mt))
-
-            mfd = None
-            if mts:
-                mfd = float(arredondar_decimal(Decimal(sum(mts)) / Decimal(len(mts))))
-
-            rows.append({
-                "aluno_id": aluno.id,
-                "numero_turma": aluno.numero_turma,
-                "nome_completo": aluno.nome_completo,
-                "sexo": aluno.sexo,
-                "status": aluno.status,
-                "notas": notas_payload,
-                "resumo": resumo_payload,
-                "mfd": mfd,
-            })
-
-        return Response({
-            "turma": {"id": turma.id, "nome": turma.nome, "classe": turma.classe.nome},
-            "disciplina": {"id": disciplina.id, "nome": disciplina.nome},
-            "ano_letivo": int(ano_letivo),
-            "rows": rows
-        }, status=status.HTTP_200_OK)
+        content = report_xlsx.caderneta_xlsx(report)
+        response = HttpResponse(
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = "attachment; filename=caderneta.xlsx"
+        return response

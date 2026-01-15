@@ -5,6 +5,8 @@ class UserSerializer(serializers.ModelSerializer):
     role_display = serializers.CharField(source='get_role_display', read_only=True)
     school_name = serializers.CharField(source='school.name', read_only=True)
     school_blocked = serializers.BooleanField(source='school.blocked', read_only=True)
+    school_current_ano_letivo = serializers.IntegerField(source='school.current_ano_letivo', read_only=True)
+    school_current_trimestre = serializers.IntegerField(source='school.current_trimestre', read_only=True)
     district_name = serializers.CharField(source='district.name', read_only=True)
     academic_roles = serializers.SerializerMethodField()
     can_lancar_notas = serializers.SerializerMethodField()
@@ -15,9 +17,15 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name', 
             'role', 'role_display', 'district', 'district_name',
             'school', 'school_name', 'school_blocked',
+            'school_current_ano_letivo', 'school_current_trimestre',
             'is_active', 'date_joined', 'academic_roles', 'can_lancar_notas'
         ]
-        read_only_fields = ['id', 'date_joined', 'role_display', 'school_name', 'school_blocked', 'district_name', 'academic_roles', 'can_lancar_notas']
+        read_only_fields = [
+            'id', 'date_joined', 'role_display',
+            'school_name', 'school_blocked',
+            'school_current_ano_letivo', 'school_current_trimestre',
+            'district_name', 'academic_roles', 'can_lancar_notas'
+        ]
         extra_kwargs = {
             'email': {'required': True},
         }

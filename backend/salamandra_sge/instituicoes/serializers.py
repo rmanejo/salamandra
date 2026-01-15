@@ -103,7 +103,10 @@ class SchoolSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = School
-        fields = ['id', 'name', 'district', 'school_type', 'blocked']
+        fields = [
+            'id', 'name', 'district', 'school_type', 'blocked',
+            'current_ano_letivo', 'current_trimestre'
+        ]
         
     def to_internal_value(self, data):
         # Handle both district (object), district (integer), and district_id in input

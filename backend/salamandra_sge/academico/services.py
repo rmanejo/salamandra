@@ -405,44 +405,41 @@ class DAEService:
     @staticmethod
     def get_estatisticas_aproveitamento(school):
         from .models import Classe, Turma, Aluno
-        from salamandra_sge.avaliacoes.models import Nota
-        from django.db.models import Avg, Count, Q
+        from .academic_role_service import AcademicRoleService
 
-        # Regra: Aprovado se média das notas >= 10 (Simplificação para a estatística)
-        # Em um sistema real, isso dependeria de ACS, ACP, AT...
-        
         classes = Classe.objects.filter(school=school)
         stats_classe = []
+        percentagens_classes = []
         for cl in classes:
-            alunos_classe = Aluno.objects.filter(school=school, classe_atual=cl, ativo=True)
-            total_alunos = alunos_classe.count()
-            
-            # Contar alunos com média >= 10 nas disciplinas
-            # Aqui vamos simplificar: alunos que têm alguma nota e a média dessas notas é >= 10
+            turmas = Turma.objects.filter(school=school, classe=cl)
+            total_alunos = 0
             aprovados = 0
-            for aluno in alunos_classe:
-                media_aluno = Nota.objects.filter(aluno=aluno).aggregate(Avg('valor'))['valor__avg']
-                if media_aluno and media_aluno >= 10:
-                    aprovados += 1
-            
+            percentagens_turmas = []
+            for turma in turmas:
+                stats = AcademicRoleService.get_turma_stats(turma)
+                total_alunos += stats['total_alunos']
+                aprovados += stats['aprovados']['total']
+                if stats['total_alunos'] > 0:
+                    percentagens_turmas.append((stats['aprovados']['total'] / stats['total_alunos']) * 100)
+                else:
+                    percentagens_turmas.append(0)
+
+            percentagem_classe = (sum(percentagens_turmas) / len(percentagens_turmas)) if percentagens_turmas else 0
+            percentagens_classes.append(percentagem_classe)
             stats_classe.append({
                 "classe": cl.nome,
                 "total": total_alunos,
                 "aprovados": aprovados,
-                "percentagem": (aprovados / total_alunos * 100) if total_alunos > 0 else 0
+                "percentagem": percentagem_classe
             })
 
         turmas = Turma.objects.filter(school=school)
         stats_turma = []
         for tr in turmas:
-            alunos_turma = Aluno.objects.filter(school=school, turma_atual=tr, ativo=True)
-            total_alunos = alunos_turma.count()
-            aprovados = 0
-            for aluno in alunos_turma:
-                media_aluno = Nota.objects.filter(aluno=aluno).aggregate(Avg('valor'))['valor__avg']
-                if media_aluno and media_aluno >= 10:
-                    aprovados += 1
-            
+            stats = AcademicRoleService.get_turma_stats(tr)
+            total_alunos = stats['total_alunos']
+            aprovados = stats['aprovados']['total']
+
             stats_turma.append({
                 "turma": tr.nome,
                 "classe": tr.classe.nome,
@@ -455,12 +452,11 @@ class DAEService:
         alunos_ativos = Aluno.objects.filter(school=school, ativo=True)
         total_ativos = alunos_ativos.count()
         aprovados_geral = 0
-        for aluno in alunos_ativos:
-            media_al = Nota.objects.filter(aluno=aluno).aggregate(Avg('valor'))['valor__avg']
-            if media_al and media_al >= 10:
-                aprovados_geral += 1
-        
-        media_geral = (aprovados_geral / total_ativos * 100) if total_ativos > 0 else 0
+        for turma in turmas:
+            stats = AcademicRoleService.get_turma_stats(turma)
+            aprovados_geral += stats['aprovados']['total']
+
+        media_geral = (sum(percentagens_classes) / len(percentagens_classes)) if percentagens_classes else 0
 
         return {
             "por_classe": stats_classe,

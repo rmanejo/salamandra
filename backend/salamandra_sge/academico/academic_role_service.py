@@ -1,42 +1,108 @@
-from django.db.models import Avg, Count, Q
-from .models import Aluno, Turma, Classe, Disciplina, Professor, ProfessorTurmaDisciplina
-from salamandra_sge.avaliacoes.models import Nota
+from django.db.models import Avg
+from .models import Aluno, Turma, Disciplina, ProfessorTurmaDisciplina
+from salamandra_sge.avaliacoes.models import Nota, ResumoTrimestral
+from salamandra_sge.avaliacoes.services import AvaliacaoService
+from salamandra_sge.relatorios.services import ReportService
 
 class AcademicRoleService:
     @staticmethod
-    def get_turma_stats(turma):
-        """
-        Retorna estatísticas de aproveitamento por sexo, pauta completa e totais.
-        """
-        alunos = Aluno.objects.filter(turma_atual=turma, ativo=True)
-        total_alunos = alunos.count()
-        total_homens = alunos.filter(sexo='HOMEM').count()
-        total_mulheres = alunos.filter(sexo='MULHER').count()
+    def _get_turma_aprovacao_stats(turma, trimestre=None):
+        alunos = list(Aluno.objects.filter(turma_atual=turma, ativo=True))
+        total_alunos = len(alunos)
+        total_homens = sum(1 for a in alunos if a.sexo == 'HOMEM')
+        total_mulheres = sum(1 for a in alunos if a.sexo == 'MULHER')
 
-        # Aproveitamento (Média > 9.5)
-        # Nota: Simplificação. No sistema real depende do tipo de avaliação.
-        aprovados = Aluno.objects.filter(
-            turma_atual=turma, 
-            ativo=True,
-            notas__valor__gte=9.5
-        ).distinct()
-        
-        stats = {
+        disciplina_ids = list(
+            ProfessorTurmaDisciplina.objects.filter(turma=turma)
+            .values_list('disciplina_id', flat=True)
+            .distinct()
+        )
+
+        resumo_filter = ResumoTrimestral.objects.filter(
+            turma=turma,
+            ano_letivo=turma.ano_letivo,
+            disciplina_id__in=disciplina_ids,
+            aluno__in=alunos
+        )
+        if trimestre:
+            resumo_filter = resumo_filter.filter(trimestre=int(trimestre))
+        resumos = resumo_filter
+        resumo_map = {(r.aluno_id, r.disciplina_id, r.trimestre): r for r in resumos}
+
+        aprovados = 0
+        pendentes = 0
+        aprovados_homens = 0
+        aprovados_mulheres = 0
+        pendentes_homens = 0
+        pendentes_mulheres = 0
+
+        for aluno in alunos:
+            medias = []
+            for disc_id in disciplina_ids:
+                if trimestre:
+                    mt = resumo_map.get((aluno.id, disc_id, int(trimestre)))
+                    medias.append(int(mt.mt) if mt and mt.mt is not None else None)
+                    continue
+                mt1 = resumo_map.get((aluno.id, disc_id, 1))
+                mt2 = resumo_map.get((aluno.id, disc_id, 2))
+                mt3 = resumo_map.get((aluno.id, disc_id, 3))
+                if not (mt1 and mt2 and mt3):
+                    medias.append(None)
+                    continue
+                mfd = AvaliacaoService.calculate_mfd(mt1.mt, mt2.mt, mt3.mt)
+                medias.append(float(mfd) if mfd is not None else None)
+
+            situacao = ReportService._situacao_aprovacao(aluno, medias)
+            if situacao == "Aprovado":
+                aprovados += 1
+                if aluno.sexo == 'HOMEM':
+                    aprovados_homens += 1
+                elif aluno.sexo == 'MULHER':
+                    aprovados_mulheres += 1
+            elif situacao == "Pendente":
+                pendentes += 1
+                if aluno.sexo == 'HOMEM':
+                    pendentes_homens += 1
+                elif aluno.sexo == 'MULHER':
+                    pendentes_mulheres += 1
+
+        reprovados = total_alunos - aprovados - pendentes
+        reprovados_homens = total_homens - aprovados_homens - pendentes_homens
+        reprovados_mulheres = total_mulheres - aprovados_mulheres - pendentes_mulheres
+        percentagem_aprovacao = {
+            "total": (aprovados / total_alunos * 100) if total_alunos > 0 else 0,
+            "homens": (aprovados_homens / total_homens * 100) if total_homens > 0 else 0,
+            "mulheres": (aprovados_mulheres / total_mulheres * 100) if total_mulheres > 0 else 0,
+        }
+
+        return {
             "total_alunos": total_alunos,
             "homens": total_homens,
             "mulheres": total_mulheres,
             "aprovados": {
-                "total": aprovados.count(),
-                "homens": aprovados.filter(sexo='HOMEM').count(),
-                "mulheres": aprovados.filter(sexo='MULHER').count(),
+                "total": aprovados,
+                "homens": aprovados_homens,
+                "mulheres": aprovados_mulheres,
+            },
+            "pendentes": {
+                "total": pendentes,
+                "homens": pendentes_homens,
+                "mulheres": pendentes_mulheres,
             },
             "reprovados": {
-                "total": total_alunos - aprovados.count(),
-                "homens": total_homens - aprovados.filter(sexo='HOMEM').count(),
-                "mulheres": total_mulheres - aprovados.filter(sexo='MULHER').count(),
-            }
+                "total": reprovados,
+                "homens": reprovados_homens,
+                "mulheres": reprovados_mulheres,
+            },
+            "percentagem_aprovacao": percentagem_aprovacao,
         }
-        return stats
+
+    @staticmethod
+    def get_turma_stats(turma, trimestre=None):
+        """
+        Retorna estatísticas de aproveitamento por sexo, pauta completa e totais.
+        """
+        return AcademicRoleService._get_turma_aprovacao_stats(turma, trimestre=trimestre)
 
     @staticmethod
     def get_classe_stats(classe, school):
@@ -47,6 +113,8 @@ class AcademicRoleService:
         stats_turmas = []
         total_alunos_classe = 0
         total_aprovados_classe = 0
+        total_pendentes_classe = 0
+        percentagens_turmas = []
 
         for turma in turmas:
             t_stats = AcademicRoleService.get_turma_stats(turma)
@@ -56,6 +124,11 @@ class AcademicRoleService:
             })
             total_alunos_classe += t_stats['total_alunos']
             total_aprovados_classe += t_stats['aprovados']['total']
+            total_pendentes_classe += t_stats.get('pendentes', {}).get('total', 0)
+            if t_stats['total_alunos'] > 0:
+                percentagens_turmas.append((t_stats['aprovados']['total'] / t_stats['total_alunos']) * 100)
+            else:
+                percentagens_turmas.append(0)
             
         # Percentagem por disciplina na classe
         disciplinas = school.disciplinas.all()
@@ -74,13 +147,14 @@ class AcademicRoleService:
                 total_media_disciplinas += val
                 count_disciplinas += 1
 
-        percentagem_aprovacao = (total_aprovados_classe / total_alunos_classe * 100) if total_alunos_classe > 0 else 0
+        percentagem_aprovacao = (sum(percentagens_turmas) / len(percentagens_turmas)) if percentagens_turmas else 0
         media_global = (total_media_disciplinas / count_disciplinas) if count_disciplinas > 0 else 0
 
         return {
             "classe": classe.nome,
             "total_turmas": turmas.count(),
             "total_alunos": total_alunos_classe,
+            "pendentes": total_pendentes_classe,
             "media_global": media_global,
             "percentagem_aprovacao": percentagem_aprovacao,
             "por_turma": stats_turmas,

@@ -170,3 +170,31 @@ class DirectorViewSet(viewsets.ViewSet):
             "aproveitamento_por_turma": estatisticas_turmas,
             "aproveitamento_por_disciplina": estatisticas_disciplinas
         })
+
+    @action(detail=False, methods=['get'])
+    def periodo_atual(self, request):
+        school = request.user.school
+        return Response({
+            "current_ano_letivo": school.current_ano_letivo,
+            "current_trimestre": school.current_trimestre
+        })
+
+    @action(detail=False, methods=['post'])
+    def definir_periodo(self, request):
+        if request.user.role not in ['ADMIN_ESCOLA', 'DAP', 'ADMINISTRATIVO']:
+            return Response({"error": "Sem permissão para definir período."}, status=status.HTTP_403_FORBIDDEN)
+        school = request.user.school
+        ano_letivo = request.data.get('current_ano_letivo')
+        trimestre = request.data.get('current_trimestre')
+        if not (ano_letivo and trimestre):
+            return Response({"error": "current_ano_letivo e current_trimestre são obrigatórios."}, status=status.HTTP_400_BAD_REQUEST)
+        if str(trimestre) not in ['1', '2', '3']:
+            return Response({"error": "current_trimestre inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        school.current_ano_letivo = int(ano_letivo)
+        school.current_trimestre = int(trimestre)
+        school.save(update_fields=['current_ano_letivo', 'current_trimestre'])
+        return Response({
+            "status": "success",
+            "current_ano_letivo": school.current_ano_letivo,
+            "current_trimestre": school.current_trimestre
+        })

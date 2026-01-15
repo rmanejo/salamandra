@@ -10,3 +10,4 @@ celery
 redis
 django-redis
 flower
+openpyxl

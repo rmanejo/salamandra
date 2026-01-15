@@ -35,11 +35,18 @@ class School(models.Model):
         ('SECUNDARIA_2', 'Ensino Secundário - 2º Ciclo (10ª-12ª Classe)'),
         ('SECUNDARIA_COMPLETA', 'Ensino Secundário Completo (7ª-12ª Classe)'),
     ]
+    TRIMESTRE_CHOICES = [
+        (1, '1º Trimestre'),
+        (2, '2º Trimestre'),
+        (3, '3º Trimestre'),
+    ]
 
     name = models.CharField(max_length=100)
     district = models.ForeignKey(District, related_name='schools', on_delete=models.CASCADE)
     school_type = models.CharField(max_length=20, choices=SCHOOL_TYPE_CHOICES, default='PRIMARIA')
     blocked = models.BooleanField(default=False)
+    current_ano_letivo = models.IntegerField(null=True, blank=True)
+    current_trimestre = models.IntegerField(choices=TRIMESTRE_CHOICES, null=True, blank=True)
 
     def __str__(self):
         return f"{self.name} ({self.get_school_type_display()})"

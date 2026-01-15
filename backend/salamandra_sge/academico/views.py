@@ -2,12 +2,21 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.http import HttpResponse
+from django.core.cache import cache
 from salamandra_sge.accounts.permissions import (
     IsAdminEscola, IsDAP, IsAdministrativo, IsDAE, IsSchoolNotBlocked, 
     IsDT, IsCC, IsDD, IsProfessor
 )
 from .models import Aluno, Turma, Classe, Disciplina, Professor, DirectorTurma, CoordenadorClasse, DelegadoDisciplina
 from .services import FormacaoTurmaService, DAEService
+from salamandra_sge.relatorios.services import ReportService
+from salamandra_sge.relatorios import xlsx as report_xlsx
+from salamandra_sge.relatorios.tasks import (
+    gerar_relatorio_xlsx,
+    build_cache_key,
+    REPORT_BUILDERS,
+)
 from .academic_role_service import AcademicRoleService
 from .serializers import (
     DisciplinaSerializer, 
@@ -118,54 +127,8 @@ class AlunoViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def situacao_academica(self, request, pk=None):
-        aluno = self.get_object()
-        from salamandra_sge.avaliacoes.models import Nota
-        from salamandra_sge.avaliacoes.services import AvaliacaoService
-        
-        # Get all disciplines for the student's current school
-        disciplinas = Disciplina.objects.filter(school=request.user.school)
-        
-        report = []
-        for disc in disciplinas:
-            disc_data = {
-                "disciplina_id": disc.id,
-                "disciplina_nome": disc.nome,
-                "trimesters": {}
-            }
-            
-            for tri in [1, 2, 3]:
-                notas = Nota.objects.filter(aluno=aluno, disciplina=disc, trimestre=tri)
-                acs_list = notas.filter(tipo__in=['ACS1', 'ACS2', 'ACS3']).order_by('tipo')
-                map_nota = notas.filter(tipo='MAP').first()
-                acp_nota = notas.filter(tipo='ACP').first()
-                
-                macs = AvaliacaoService.calculate_macs(acs_list, map_nota)
-                mt = None
-                com = None
-                
-                if acp_nota and acp_nota.valor is not None:
-                    mt = AvaliacaoService.calculate_mt(macs, acp_nota.valor)
-                    com = AvaliacaoService.get_comportamento(mt)
-                
-                disc_data["trimesters"][tri] = {
-                    "acs": [float(n.valor) for n in acs_list if n.valor is not None],
-                    "map": float(map_nota.valor) if map_nota else None,
-                    "macs": float(macs) if macs is not None else None,
-                    "acp": float(acp_nota.valor) if acp_nota else None,
-                    "mt": int(mt) if mt is not None else None,
-                    "com": com
-                }
-            
-            # MFD calculation
-            mt1 = disc_data["trimesters"][1]["mt"]
-            mt2 = disc_data["trimesters"][2]["mt"]
-            mt3 = disc_data["trimesters"][3]["mt"]
-            mfd = AvaliacaoService.calculate_mfd(mt1, mt2, mt3)
-            disc_data["mfd"] = float(mfd) if mfd is not None else None
-            
-            report.append(disc_data)
-            
-        return Response(report, status=status.HTTP_200_OK)
+        report = ReportService.situacao_academica(user=request.user, aluno_id=pk)
+        return Response(report["disciplinas"], status=status.HTTP_200_OK)
 
 class ProfessorViewSet(viewsets.ModelViewSet):
     """
@@ -337,7 +300,7 @@ class TurmaViewSet(viewsets.ModelViewSet):
         school = request.user.school
         
         # 1. Obter todas as disciplinas da escola
-        disciplinas = Disciplina.objects.filter(school=school).order_by('nome')
+        disciplinas = Disciplina.objects.filter(school=school).order_by('ordem', 'nome')
         
         # 2. Obter atribuições atuais
         from .models import ProfessorTurmaDisciplina
@@ -525,177 +488,23 @@ class RelatorioViewSet(viewsets.ViewSet):
     """
     permission_classes = [IsAuthenticated, IsSchoolNotBlocked]
 
-    def _is_report_admin(self, user):
-        return user.role in ['ADMIN_ESCOLA', 'DAP', 'ADMINISTRATIVO']
-
-    def _can_view_pauta(self, user, turma):
-        if self._is_report_admin(user):
-            return True
-        if user.role != 'PROFESSOR':
-            return False
-        if DirectorTurma.objects.filter(professor__user=user, turma=turma).exists():
-            return True
-        return CoordenadorClasse.objects.filter(professor__user=user, classe=turma.classe).exists()
-
-    def _can_view_declaracao(self, user, aluno):
-        if self._is_report_admin(user):
-            return True
-        if user.role != 'PROFESSOR':
-            return False
-        if not aluno.turma_atual:
-            return False
-        return DirectorTurma.objects.filter(professor__user=user, turma=aluno.turma_atual).exists()
-
     @action(detail=False, methods=['get'])
     def pauta_turma(self, request):
-        turma_id = request.query_params.get('turma_id')
-        disciplina_id = request.query_params.get('disciplina_id')
-        if not all([turma_id, disciplina_id]):
-            return Response({"error": "turma_id e disciplina_id são obrigatórios."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            turma = Turma.objects.get(id=turma_id, school=request.user.school)
-            disciplina = Disciplina.objects.get(id=disciplina_id, school=request.user.school)
-        except (Turma.DoesNotExist, Disciplina.DoesNotExist):
-            return Response({"error": "Turma ou Disciplina não encontrada."}, status=status.HTTP_404_NOT_FOUND)
-
-        if not self._can_view_pauta(request.user, turma):
-            return Response({"error": "Sem permissão para visualizar esta pauta."}, status=status.HTTP_403_FORBIDDEN)
-
-        from salamandra_sge.academico.models import ProfessorTurmaDisciplina
-        if not ProfessorTurmaDisciplina.objects.filter(turma=turma, disciplina=disciplina).exists():
-            return Response({"error": "Disciplina não atribuída a esta turma."}, status=status.HTTP_400_BAD_REQUEST)
-
-        from salamandra_sge.avaliacoes.models import Nota
-        from salamandra_sge.avaliacoes.services import AvaliacaoService
-        
-        alunos = Aluno.objects.filter(turma_atual=turma, ativo=True).order_by('numero_turma', 'nome_completo')
-        
-        pauta = []
-        for aluno in alunos:
-            aluno_data = {
-                "id": aluno.id,
-                "numero_turma": aluno.numero_turma,
-                "nome": aluno.nome_completo,
-                "sexo": aluno.sexo[0] if aluno.sexo else "",
-                "trimesters": {}
-            }
-            
-            for tri in [1, 2, 3]:
-                notas = Nota.objects.filter(aluno=aluno, disciplina=disciplina, trimestre=tri)
-                acs_list = notas.filter(tipo__in=['ACS1', 'ACS2', 'ACS3']).order_by('tipo')
-                map_nota = notas.filter(tipo='MAP').first()
-                acp_nota = notas.filter(tipo='ACP').first()
-                
-                macs = AvaliacaoService.calculate_macs(acs_list, map_nota)
-                mt = None
-                com = None
-                
-                if acp_nota and acp_nota.valor is not None:
-                    mt = AvaliacaoService.calculate_mt(macs, acp_nota.valor)
-                    com = AvaliacaoService.get_comportamento(mt)
-                
-                aluno_data["trimesters"][tri] = {
-                    "acs": [float(n.valor) for n in acs_list if n.valor is not None],
-                    "map": float(map_nota.valor) if map_nota else None,
-                    "macs": float(macs) if macs is not None else None,
-                    "acp": float(acp_nota.valor) if acp_nota else None,
-                    "mt": int(mt) if mt is not None else None,
-                    "com": com
-                }
-
-            # MFD calculation
-            mt1 = aluno_data["trimesters"][1]["mt"]
-            mt2 = aluno_data["trimesters"][2]["mt"]
-            mt3 = aluno_data["trimesters"][3]["mt"]
-            mfd = AvaliacaoService.calculate_mfd(mt1, mt2, mt3)
-            aluno_data["mfd"] = float(mfd) if mfd is not None else None
-            
-            pauta.append(aluno_data)
-
-        return Response({
-            "escola": request.user.school.name,
-            "turma": turma.nome,
-            "disciplina": disciplina.nome,
-            "classe": turma.classe.nome,
-            "ano_letivo": turma.ano_letivo,
-            "pauta": pauta
-        }, status=status.HTTP_200_OK)
+        report = ReportService.pauta_turma(
+            user=request.user,
+            turma_id=request.query_params.get('turma_id'),
+            disciplina_id=request.query_params.get('disciplina_id'),
+        )
+        return Response(report, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'])
     def pauta_turma_geral(self, request):
-        turma_id = request.query_params.get('turma_id')
-        trimestre = request.query_params.get('trimestre')
-        if not all([turma_id, trimestre]):
-            return Response({"error": "turma_id e trimestre são obrigatórios."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not str(trimestre).isdigit():
-            return Response({"error": "trimestre inválido."}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            turma = Turma.objects.get(id=turma_id, school=request.user.school)
-        except Turma.DoesNotExist:
-            return Response({"error": "Turma não encontrada."}, status=status.HTTP_404_NOT_FOUND)
-
-        if not self._can_view_pauta(request.user, turma):
-            return Response({"error": "Sem permissão para visualizar esta pauta."}, status=status.HTTP_403_FORBIDDEN)
-
-        from salamandra_sge.academico.models import ProfessorTurmaDisciplina
-        from salamandra_sge.avaliacoes.models import ResumoTrimestral
-        from salamandra_sge.avaliacoes.services import AvaliacaoService
-        
-       
-        ano_letivo = turma.ano_letivo
-        disciplinas = Disciplina.objects.filter(
-            id__in=ProfessorTurmaDisciplina.objects.filter(
-                turma=turma, school=request.user.school
-            ).values_list('disciplina_id', flat=True)
-        ).order_by('nome')
-
-        if not disciplinas.exists():
-            return Response(
-                {"error": "Nenhuma disciplina atribuída a esta turma."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        resumos = ResumoTrimestral.objects.filter(
-            turma=turma,
-            ano_letivo=ano_letivo,
-            trimestre=int(trimestre)
+        report = ReportService.pauta_turma_geral(
+            user=request.user,
+            turma_id=request.query_params.get('turma_id'),
+            trimestre=request.query_params.get('trimestre'),
         )
-        resumo_map = {(r.aluno_id, r.disciplina_id): r for r in resumos}
-
-        alunos = Aluno.objects.filter(turma_atual=turma, ativo=True).order_by('nome_completo')
-        pauta = []
-
-        for aluno in alunos:
-            disciplinas_data = {}
-            mts = []
-            for disc in disciplinas:
-                resumo = resumo_map.get((aluno.id, disc.id))
-                mt_val = float(resumo.mt) if resumo and resumo.mt is not None else None
-                disciplinas_data[disc.id] = mt_val
-                if mt_val is not None:
-                    mts.append(mt_val)
-
-            media_final = (sum(mts) / len(mts)) if mts else None
-            pauta.append({
-                "id": aluno.id,
-                "nome": aluno.nome_completo,
-                "disciplinas": disciplinas_data,
-                "media_final": round(media_final, 2) if media_final is not None else None,
-                "situacao": "Aprovado" if media_final is not None and media_final >= 10 else "Reprovado" if media_final is not None else "Sem dados"
-            })
-
-        return Response({
-            "escola": request.user.school.name,
-            "turma": turma.nome,
-            "classe": turma.classe.nome,
-            "ano_letivo": ano_letivo,
-            "trimestre": int(trimestre),
-            "disciplinas": [{"id": d.id, "nome": d.nome} for d in disciplinas],
-            "pauta": pauta
-        }, status=status.HTTP_200_OK)
+        return Response(report, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'])
     def resumo_escola(self, request):
@@ -711,88 +520,146 @@ class RelatorioViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['get'])
     def declaracao_aluno(self, request):
-        aluno_id = request.query_params.get('aluno_id')
-        if not aluno_id:
-            return Response({"error": "aluno_id é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            aluno = Aluno.objects.get(id=aluno_id, school=request.user.school)
-        except Aluno.DoesNotExist:
-            return Response({"error": "Aluno não encontrado."}, status=status.HTTP_404_NOT_FOUND)
-
-        if not self._can_view_declaracao(request.user, aluno):
-            return Response({"error": "Sem permissão para visualizar esta declaração."}, status=status.HTTP_403_FORBIDDEN)
-
-        turma = aluno.turma_atual
-        if not turma:
-            return Response({"error": "Aluno sem turma atual."}, status=status.HTTP_400_BAD_REQUEST)
-
-        from salamandra_sge.avaliacoes.models import ResumoTrimestral
-        from salamandra_sge.avaliacoes.services import AvaliacaoService
-        
-        ano_letivo = turma.ano_letivo
-        from salamandra_sge.academico.models import ProfessorTurmaDisciplina
-        disciplinas = Disciplina.objects.filter(
-            id__in=ProfessorTurmaDisciplina.objects.filter(
-                turma=turma, school=request.user.school
-            ).values_list('disciplina_id', flat=True)
-        ).order_by('nome')
-        resumos = ResumoTrimestral.objects.filter(
-            aluno=aluno,
-            ano_letivo=ano_letivo
+        report = ReportService.declaracao_aluno(
+            user=request.user,
+            aluno_id=request.query_params.get('aluno_id'),
         )
-        resumo_map = {}
-        for r in resumos:
-            resumo_map[(r.disciplina_id, r.trimestre)] = r
+        return Response(report, status=status.HTTP_200_OK)
 
-        disciplinas_data = []
-        overall_status = "Sem dados"
-        has_any = False
-        has_reprovado = False
+    @action(detail=False, methods=['get'])
+    def lista_alunos_turma(self, request):
+        report = ReportService.lista_alunos_turma(
+            user=request.user,
+            turma_id=request.query_params.get('turma_id'),
+        )
+        return Response(report, status=status.HTTP_200_OK)
 
-        for disc in disciplinas:
-            mt1 = resumo_map.get((disc.id, 1))
-            mt2 = resumo_map.get((disc.id, 2))
-            mt3 = resumo_map.get((disc.id, 3))
+    @action(detail=False, methods=['get'])
+    def aprovados_reprovados_turma(self, request):
+        report = ReportService.aprovados_reprovados_turma(
+            user=request.user,
+            turma_id=request.query_params.get('turma_id'),
+            trimestre=request.query_params.get('trimestre'),
+        )
+        return Response(report, status=status.HTTP_200_OK)
 
-            mts = [
-                int(mt1.mt) if mt1 and mt1.mt is not None else None,
-                int(mt2.mt) if mt2 and mt2.mt is not None else None,
-                int(mt3.mt) if mt3 and mt3.mt is not None else None,
-            ]
-            mfd = AvaliacaoService.calculate_mfd(mts[0], mts[1], mts[2])
+    @action(detail=False, methods=['get'])
+    def pauta_turma_xlsx(self, request):
+        report = ReportService.pauta_turma(
+            user=request.user,
+            turma_id=request.query_params.get('turma_id'),
+            disciplina_id=request.query_params.get('disciplina_id'),
+        )
+        content = report_xlsx.pauta_turma_xlsx(report)
+        response = HttpResponse(
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = "attachment; filename=pauta_turma.xlsx"
+        return response
 
-            if mfd is not None:
-                has_any = True
-                if mfd < 10:
-                    has_reprovado = True
+    @action(detail=False, methods=['get'])
+    def pauta_turma_geral_xlsx(self, request):
+        report = ReportService.pauta_turma_geral(
+            user=request.user,
+            turma_id=request.query_params.get('turma_id'),
+            trimestre=request.query_params.get('trimestre'),
+        )
+        content = report_xlsx.pauta_turma_geral_xlsx(report)
+        response = HttpResponse(
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = "attachment; filename=pauta_turma_geral.xlsx"
+        return response
 
-            disciplinas_data.append({
-                "disciplina_id": disc.id,
-                "disciplina_nome": disc.nome,
-                "trimestres": {
-                    1: mts[0],
-                    2: mts[1],
-                    3: mts[2],
-                },
-                "mfd": float(mfd) if mfd is not None else None,
-                "situacao": "Aprovado" if mfd is not None and mfd >= 10 else "Reprovado" if mfd is not None else "Sem dados"
-            })
+    @action(detail=False, methods=['get'])
+    def declaracao_aluno_xlsx(self, request):
+        report = ReportService.declaracao_aluno(
+            user=request.user,
+            aluno_id=request.query_params.get('aluno_id'),
+        )
+        content = report_xlsx.declaracao_aluno_xlsx(report)
+        response = HttpResponse(
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = "attachment; filename=declaracao_aluno.xlsx"
+        return response
 
-        if has_any:
-            overall_status = "Reprovado" if has_reprovado else "Aprovado"
+    @action(detail=False, methods=['get'])
+    def situacao_academica_xlsx(self, request):
+        report = ReportService.situacao_academica(
+            user=request.user,
+            aluno_id=request.query_params.get('aluno_id'),
+        )
+        content = report_xlsx.situacao_academica_xlsx(report)
+        response = HttpResponse(
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = "attachment; filename=situacao_academica.xlsx"
+        return response
 
-        return Response({
-            "aluno": {
-                "id": aluno.id,
-                "nome": aluno.nome_completo
-            },
-            "turma": turma.nome,
-            "classe": turma.classe.nome,
-            "ano_letivo": ano_letivo,
-            "disciplinas": disciplinas_data,
-            "situacao_final": overall_status
-        }, status=status.HTTP_200_OK)
+    @action(detail=False, methods=['get'])
+    def lista_alunos_turma_xlsx(self, request):
+        report = ReportService.lista_alunos_turma(
+            user=request.user,
+            turma_id=request.query_params.get('turma_id'),
+        )
+        content = report_xlsx.lista_alunos_turma_xlsx(report)
+        response = HttpResponse(
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = "attachment; filename=lista_alunos_turma.xlsx"
+        return response
+
+    @action(detail=False, methods=['get'])
+    def aprovados_reprovados_turma_xlsx(self, request):
+        report = ReportService.aprovados_reprovados_turma(
+            user=request.user,
+            turma_id=request.query_params.get('turma_id'),
+            trimestre=request.query_params.get('trimestre'),
+        )
+        content = report_xlsx.aprovados_reprovados_turma_xlsx(report)
+        response = HttpResponse(
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = "attachment; filename=aprovados_reprovados_turma.xlsx"
+        return response
+
+    @action(detail=False, methods=['post'])
+    def exportar_xlsx_async(self, request):
+        tipo = request.data.get('tipo')
+        params = request.data.get('params') or {}
+        if tipo not in REPORT_BUILDERS:
+            return Response({"error": "tipo inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        cache_key = build_cache_key()
+        task = gerar_relatorio_xlsx.delay(tipo, request.user.id, params, cache_key)
+        return Response(
+            {"task_id": task.id, "cache_key": cache_key},
+            status=status.HTTP_202_ACCEPTED
+        )
+
+    @action(detail=False, methods=['get'])
+    def baixar_xlsx(self, request):
+        cache_key = request.query_params.get('cache_key')
+        if not cache_key:
+            return Response({"error": "cache_key é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+
+        content = cache.get(cache_key)
+        if not content:
+            return Response({"error": "Arquivo não encontrado ou expirado."}, status=status.HTTP_404_NOT_FOUND)
+
+        filename = request.query_params.get('filename') or f"{cache_key}.xlsx"
+        response = HttpResponse(
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f"attachment; filename={filename}"
+        return response
 
 class DirectorTurmaViewSet(viewsets.ViewSet):
     """
@@ -804,7 +671,8 @@ class DirectorTurmaViewSet(viewsets.ViewSet):
     def minha_turma(self, request):
         try:
             dt_obj = DirectorTurma.objects.get(professor__user=request.user)
-            stats = AcademicRoleService.get_turma_stats(dt_obj.turma)
+            trimestre = request.query_params.get('trimestre') or request.user.school.current_trimestre
+            stats = AcademicRoleService.get_turma_stats(dt_obj.turma, trimestre=trimestre)
             return Response({
                 "turma": dt_obj.turma.nome,
                 "classe": dt_obj.turma.classe.nome,
