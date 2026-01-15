@@ -9,13 +9,16 @@ const ProfessorDashboard: React.FC = () => {
     const [ccData, setCcData] = useState<any[]>([]);
     const [ddData, setDdData] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [trimestre, setTrimestre] = useState<number | null>(null);
 
     useEffect(() => {
         const fetchDashboardData = async () => {
             try {
                 // Fetch DT Data
                 try {
-                    const dt = await academicRoleService.getDTMinhaTurma();
+                    const dt = await academicRoleService.getDTMinhaTurma(
+                        trimestre ? { trimestre } : undefined
+                    );
                     setDtData(dt);
                 } catch (e) {
                     // Ignore if not DT
@@ -44,7 +47,13 @@ const ProfessorDashboard: React.FC = () => {
             }
         };
         fetchDashboardData();
-    }, []);
+    }, [trimestre]);
+
+    useEffect(() => {
+        if (user?.school_current_trimestre) {
+            setTrimestre(user.school_current_trimestre);
+        }
+    }, [user]);
 
     if (loading) return <div className="p-4"><Spinner animation="border" size="sm" /> Carregando seus dados pedagógicos...</div>;
 
@@ -68,44 +77,46 @@ const ProfessorDashboard: React.FC = () => {
                     <Card className="shadow-sm border-0 mb-4 bg-primary text-white">
                         <Card.Body className="p-4">
                             <h4 className="fw-bold mb-1">Director de Turma: {dtData.turma}</h4>
-                            <p className="mb-0 opacity-75">{dtData.classe} | {user?.school_name}</p>
+                            <p className="mb-0 opacity-75">
+                                {dtData.classe} | {user?.school_name} | Trimestre: {trimestre ?? '-'}
+                            </p>
                         </Card.Body>
                     </Card>
 
                     <Row className="g-4">
-                        <Col md={3}>
+                        <Col md={4}>
                             <Card className="shadow-sm border-0 text-center py-3">
                                 <Card.Body>
                                     <h6 className="text-muted small text-uppercase">Total Alunos</h6>
                                     <h3 className="fw-bold mb-0">{dtData.estatisticas?.total_alunos || 0}</h3>
+                                    <div className="text-muted small mt-1">
+                                        H: {dtData.estatisticas?.homens || 0} | M: {dtData.estatisticas?.mulheres || 0}
+                                    </div>
                                 </Card.Body>
                             </Card>
                         </Col>
-                        <Col md={3}>
+                        <Col md={4}>
                             <Card className="shadow-sm border-0 text-center py-3">
                                 <Card.Body>
-                                    <h6 className="text-muted small text-uppercase">Média da Turma</h6>
-                                    <h3 className="fw-bold mb-0 text-primary">
-                                        {dtData.estatisticas?.media_turma?.toFixed(1) || '0.0'}
-                                    </h3>
+                                    <h6 className="text-muted small text-uppercase">Aprovados</h6>
+                                    <h3 className="fw-bold mb-0 text-success">{dtData.estatisticas?.aprovados?.total || 0}</h3>
+                                    <div className="text-muted small mt-1">
+                                        H: {dtData.estatisticas?.aprovados?.homens || 0} | M: {dtData.estatisticas?.aprovados?.mulheres || 0}
+                                    </div>
                                 </Card.Body>
                             </Card>
                         </Col>
-                        <Col md={3}>
-                            <Card className="shadow-sm border-0 text-center py-3">
-                                <Card.Body>
-                                    <h6 className="text-muted small text-uppercase">Faltas (Mês)</h6>
-                                    <h3 className="fw-bold mb-0 text-danger">{dtData.estatisticas?.total_faltas || 0}</h3>
-                                </Card.Body>
-                            </Card>
-                        </Col>
-                        <Col md={3}>
+                        <Col md={4}>
                             <Card className="shadow-sm border-0 text-center py-3">
                                 <Card.Body>
                                     <h6 className="text-muted small text-uppercase">Aproveitamento</h6>
-                                    <h3 className="fw-bold mb-0 text-success">
-                                        {dtData.estatisticas?.percentagem_passagem || 0}%
+                                    <h3 className="fw-bold mb-0 text-primary">
+                                        {dtData.estatisticas?.percentagem_aprovacao?.total?.toFixed(1) || '0.0'}%
                                     </h3>
+                                    <div className="text-muted small mt-1">
+                                        H: {dtData.estatisticas?.percentagem_aprovacao?.homens?.toFixed(1) || '0.0'}% |
+                                        M: {dtData.estatisticas?.percentagem_aprovacao?.mulheres?.toFixed(1) || '0.0'}%
+                                    </div>
                                 </Card.Body>
                             </Card>
                         </Col>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Row, Col, Card, Button } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Form, Spinner } from 'react-bootstrap';
 import { useAuth } from '../../context/AuthContext';
 import { institutionalService } from '../../services/api';
 
@@ -8,12 +8,23 @@ const DirectorDashboard: React.FC = () => {
     const [blocked, setBlocked] = useState(user?.school_blocked || false);
     const [stats, setStats] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [periodo, setPeriodo] = useState<{ ano: string; trimestre: string }>({ ano: '', trimestre: '1' });
+    const [savingPeriodo, setSavingPeriodo] = useState(false);
 
     useEffect(() => {
         const fetchDashboardData = async () => {
             try {
-                const data = await institutionalService.getDirectorDashboard();
+                const [data, periodoAtual] = await Promise.all([
+                    institutionalService.getDirectorDashboard(),
+                    institutionalService.getPeriodoAtual()
+                ]);
                 setStats(data);
+                if (periodoAtual?.current_ano_letivo && periodoAtual?.current_trimestre) {
+                    setPeriodo({
+                        ano: String(periodoAtual.current_ano_letivo),
+                        trimestre: String(periodoAtual.current_trimestre),
+                    });
+                }
             } catch (error) {
                 console.error('Error fetching director dashboard:', error);
             } finally {
@@ -29,6 +40,22 @@ const DirectorDashboard: React.FC = () => {
             setBlocked(response.blocked);
         } catch (error) {
             console.error('Error toggling lock:', error);
+        }
+    };
+
+    const handleSavePeriodo = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!periodo.ano || !periodo.trimestre) return;
+        setSavingPeriodo(true);
+        try {
+            await institutionalService.definirPeriodo({
+                current_ano_letivo: parseInt(periodo.ano),
+                current_trimestre: parseInt(periodo.trimestre),
+            });
+        } catch (error) {
+            console.error('Error saving periodo:', error);
+        } finally {
+            setSavingPeriodo(false);
         }
     };
 
@@ -90,6 +117,74 @@ const DirectorDashboard: React.FC = () => {
                 <Col md={6}>
                     <Card className="shadow-sm border-0 mb-4 h-100">
                         <Card.Body>
+                            <Card.Title className="h6 mb-3 fw-bold border-bottom pb-2">Período Lectivo Atual</Card.Title>
+                            <Form onSubmit={handleSavePeriodo} className="row g-3">
+                                <Col md={6}>
+                                    <Form.Group>
+                                        <Form.Label className="small fw-bold">Ano Lectivo</Form.Label>
+                                        <Form.Control
+                                            type="number"
+                                            value={periodo.ano}
+                                            onChange={(e) => setPeriodo((prev) => ({ ...prev, ano: e.target.value }))}
+                                            placeholder="2026"
+                                            required
+                                            disabled={savingPeriodo}
+                                        />
+                                    </Form.Group>
+                                </Col>
+                                <Col md={6}>
+                                    <Form.Group>
+                                        <Form.Label className="small fw-bold">Trimestre</Form.Label>
+                                        <Form.Select
+                                            value={periodo.trimestre}
+                                            onChange={(e) => setPeriodo((prev) => ({ ...prev, trimestre: e.target.value }))}
+                                            disabled={savingPeriodo}
+                                        >
+                                            <option value="1">1º Trimestre</option>
+                                            <option value="2">2º Trimestre</option>
+                                            <option value="3">3º Trimestre</option>
+                                        </Form.Select>
+                                    </Form.Group>
+                                </Col>
+                                <Col md={12}>
+                                    <Button type="submit" variant="primary" disabled={savingPeriodo} className="w-100">
+                                        {savingPeriodo ? <Spinner animation="border" size="sm" /> : 'Salvar Período'}
+                                    </Button>
+                                </Col>
+                            </Form>
+                        </Card.Body>
+                    </Card>
+                </Col>
+                <Col md={6}>
+                    <Card className="shadow-sm border-0 mb-4 h-100">
+                        <Card.Body>
+                            <Card.Title className="h6 mb-3 fw-bold border-bottom pb-2">Aproveitamento por Disciplina</Card.Title>
+                            <div className="table-responsive">
+                                <table className="table table-hover table-sm small">
+                                    <thead>
+                                        <tr>
+                                            <th>Disciplina</th>
+                                            <th className="text-end">Aproveitamento</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {stats?.aproveitamento_por_disciplina?.map((item: any) => (
+                                            <tr key={item.disciplina}>
+                                                <td>{item.disciplina}</td>
+                                                <td className="text-end fw-bold text-primary">{item.media.toFixed(1)}%</td>
+                                            </tr>
+                                        )) || <tr><td colSpan={2} className="text-center py-4">Sem dados disponíveis.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card.Body>
+                    </Card>
+                </Col>
+            </Row>
+            <Row className="mt-2">
+                <Col md={12}>
+                    <Card className="shadow-sm border-0 mb-4 h-100">
+                        <Card.Body>
                             <Card.Title className="h6 mb-4 fw-bold border-bottom pb-2">Aproveitamento por Classe (%)</Card.Title>
                             {stats?.aproveitamento_por_classe?.map((item: any) => (
                                 <div key={item.classe} className="mb-3">
@@ -109,31 +204,6 @@ const DirectorDashboard: React.FC = () => {
                                     </div>
                                 </div>
                             )) || <p className="text-muted small">Sem dados disponíveis.</p>}
-                        </Card.Body>
-                    </Card>
-                </Col>
-                <Col md={6}>
-                    <Card className="shadow-sm border-0 mb-4 h-100">
-                        <Card.Body>
-                            <Card.Title className="h6 mb-4 fw-bold border-bottom pb-2">Aproveitamento por Disciplina</Card.Title>
-                            <div className="table-responsive">
-                                <table className="table table-hover table-sm small">
-                                    <thead>
-                                        <tr>
-                                            <th>Disciplina</th>
-                                            <th className="text-end">Aproveitamento</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {stats?.aproveitamento_por_disciplina?.map((item: any) => (
-                                            <tr key={item.disciplina}>
-                                                <td>{item.disciplina}</td>
-                                                <td className="text-end fw-bold text-primary">{item.media.toFixed(1)}%</td>
-                                            </tr>
-                                        )) || <tr><td colSpan={2} className="text-center py-4">Sem dados disponíveis.</td></tr>}
-                                    </tbody>
-                                </table>
-                            </div>
                         </Card.Body>
                     </Card>
                 </Col>

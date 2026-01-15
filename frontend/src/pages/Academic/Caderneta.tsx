@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { academicService, evaluationService } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 
 interface GradeObject {
     valor: number | null;
@@ -58,9 +59,13 @@ const Caderneta: React.FC = () => {
     const [selectedDisciplina, setSelectedDisciplina] = useState<string>('');
     const [selectedTrimestre, setSelectedTrimestre] = useState<number>(1);
     const [selectedAno, setSelectedAno] = useState<number>(new Date().getFullYear());
+    const [showStats, setShowStats] = useState(false);
+    const [showCaderneta, setShowCaderneta] = useState(false);
 
     // State to determine if the user can actually edit the current selection
     const [canEdit, setCanEdit] = useState(false);
+    const [periodInitialized, setPeriodInitialized] = useState(false);
+    const { user } = useAuth();
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -80,10 +85,17 @@ const Caderneta: React.FC = () => {
                 t.id.toString() === selectedTurma &&
                 t.disciplinas.some((d: any) => d.id.toString() === selectedDisciplina)
             );
-            setCanEdit(isTeaching);
+            const allowedRoles = ['ADMIN_ESCOLA', 'DAP', 'ADMINISTRATIVO'];
+            const hasRole = !!user && allowedRoles.includes(user.role);
+            const currentAno = user?.school_current_ano_letivo;
+            const currentTri = user?.school_current_trimestre;
+            const isCurrentPeriod = currentAno && currentTri
+                ? selectedAno === currentAno && selectedTrimestre === currentTri
+                : false;
+            setCanEdit(isTeaching && hasRole && isCurrentPeriod);
             loadGradebookData();
         }
-    }, [selectedTurma, selectedDisciplina, selectedTrimestre, selectedAno, turmas]);
+    }, [selectedTurma, selectedDisciplina, selectedTrimestre, selectedAno, turmas, user]);
 
     useEffect(() => {
         if (!selectedTurma) return;
@@ -92,6 +104,15 @@ const Caderneta: React.FC = () => {
             setSelectedAno(turma.ano_letivo);
         }
     }, [selectedTurma, turmas]);
+
+    useEffect(() => {
+        if (periodInitialized) return;
+        if (user?.school_current_ano_letivo && user?.school_current_trimestre) {
+            setSelectedAno(user.school_current_ano_letivo);
+            setSelectedTrimestre(user.school_current_trimestre);
+            setPeriodInitialized(true);
+        }
+    }, [periodInitialized, user]);
 
     const loadInitialData = async (turmaParam?: string | null, disciplinaParam?: string | null) => {
         try {
@@ -363,10 +384,108 @@ const Caderneta: React.FC = () => {
         ? turmas.find(t => t.id.toString() === selectedTurma)?.disciplinas || []
         : [];
 
+    useEffect(() => {
+        if (selectedTurma && selectedDisciplina) {
+            setShowCaderneta(true);
+        }
+    }, [selectedTurma, selectedDisciplina]);
+
+    useEffect(() => {
+        if (showCaderneta) {
+            document.body.style.overflow = 'hidden';
+            return () => {
+                document.body.style.overflow = '';
+            };
+        }
+        document.body.style.overflow = '';
+        return undefined;
+    }, [showCaderneta]);
+
+    useEffect(() => {
+        if (!showCaderneta) {
+            setShowStats(false);
+        }
+    }, [showCaderneta]);
+
+    const getValorColuna = (row: CadernetaRow, coluna: string) => {
+        const trimestreKey = String(selectedTrimestre);
+        if (['ACS1', 'ACS2', 'ACS3', 'MAP', 'ACP'].includes(coluna)) {
+            return row.notas?.[trimestreKey]?.[coluna] ?? null;
+        }
+        if (['MACS', 'MT'].includes(coluna)) {
+            return row.resumo?.[trimestreKey]?.[coluna.toLowerCase()] ?? null;
+        }
+        return null;
+    };
+
+    const buildStats = (coluna: string) => {
+        const base = {
+            avaliados: { total: 0, homens: 0, mulheres: 0 },
+            positivos: { total: 0, homens: 0, mulheres: 0 },
+            negativos: { total: 0, homens: 0, mulheres: 0 },
+            soma: { total: 0, homens: 0, mulheres: 0 },
+            inscritos: { total: rows.length, homens: 0, mulheres: 0 },
+        };
+
+        rows.forEach((row) => {
+            if (row.sexo === 'HOMEM') base.inscritos.homens += 1;
+            else if (row.sexo === 'MULHER') base.inscritos.mulheres += 1;
+        });
+
+        rows.forEach((row) => {
+            const valor = getValorColuna(row, coluna);
+            if (valor === null || valor === undefined) return;
+            base.avaliados.total += 1;
+            if (row.sexo === 'HOMEM') base.avaliados.homens += 1;
+            else if (row.sexo === 'MULHER') base.avaliados.mulheres += 1;
+
+            base.soma.total += valor;
+            if (row.sexo === 'HOMEM') base.soma.homens += valor;
+            else if (row.sexo === 'MULHER') base.soma.mulheres += valor;
+
+            if (valor >= 10) {
+                base.positivos.total += 1;
+                if (row.sexo === 'HOMEM') base.positivos.homens += 1;
+                else if (row.sexo === 'MULHER') base.positivos.mulheres += 1;
+            } else {
+                base.negativos.total += 1;
+                if (row.sexo === 'HOMEM') base.negativos.homens += 1;
+                else if (row.sexo === 'MULHER') base.negativos.mulheres += 1;
+            }
+        });
+
+        const percent = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0);
+        const avg = (sum: number, den: number) => (den > 0 ? sum / den : 0);
+
+        return {
+            avaliados: base.avaliados,
+            positivos: base.positivos,
+            negativos: base.negativos,
+            percentPositivos: {
+                total: percent(base.positivos.total, base.avaliados.total),
+                homens: percent(base.positivos.homens, base.avaliados.homens),
+                mulheres: percent(base.positivos.mulheres, base.avaliados.mulheres),
+            },
+            percentNegativos: {
+                total: percent(base.negativos.total, base.avaliados.total),
+                homens: percent(base.negativos.homens, base.avaliados.homens),
+                mulheres: percent(base.negativos.mulheres, base.avaliados.mulheres),
+            },
+            soma: base.soma,
+            media: {
+                total: avg(base.soma.total, base.avaliados.total),
+                homens: avg(base.soma.homens, base.avaliados.homens),
+                mulheres: avg(base.soma.mulheres, base.avaliados.mulheres),
+            },
+        };
+    };
+
     return (
         <div className="p-6">
             <div className="flex justify-between items-center mb-6">
-                <h1 className="text-2xl font-bold">Caderneta do Professor</h1>
+                <div className="flex items-center gap-3">
+                    <h1 className="text-2xl font-bold">Caderneta do Professor</h1>
+                </div>
                 {!canEdit && selectedTurma && (
                     <div className="bg-amber-100 border border-amber-200 text-amber-700 px-4 py-2 rounded-lg flex items-center gap-2">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -453,76 +572,185 @@ const Caderneta: React.FC = () => {
 
             {selectedTurma && selectedDisciplina ? (
                 <>
-                    <div className="bg-white rounded-lg shadow-md overflow-hidden mb-4">
-                        <div className="overflow-x-auto">
-                            <table className="w-full border-collapse border border-gray-200">
-                                <thead>
-                                    <tr className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
-                                        <th className="px-4 py-3 text-center text-sm font-semibold w-12 border-r border-white/30">Nº</th>
-                                        <th className="px-4 py-3 text-left text-sm font-semibold min-w-[200px] border-r border-white/30">Nome do Aluno</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-16 border-r border-white/30">Sexo</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACS1</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACS2</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACS3</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">MAP</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">MACS</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACP</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">MT</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold w-44">COM</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {loading ? (
-                                        <tr>
-                                            <td colSpan={11} className="text-center py-12 text-gray-500">
-                                                <div className="flex items-center justify-center gap-2">
-                                                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
-                                                    Carregando dados...
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ) : rows.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={11} className="text-center py-12 text-gray-500">
-                                                Nenhum aluno encontrado nesta turma.
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        rows.map((student, index) => (
-                                            <tr key={student.aluno_id} className={`transition-colors ${getStatusColor(student.status)} ${index % 2 === 0 && student.status === 'ATIVO' ? 'bg-white' : student.status === 'ATIVO' ? 'bg-gray-50' : ''} hover:bg-gray-100 border-b border-gray-200`}>
-                                                <td className="px-4 py-3 text-center text-sm text-gray-600 border-r border-gray-200">
-                                                    {student.numero_turma ?? index + 1}
-                                                </td>
-                                                <td className="px-4 py-3 text-sm font-medium text-gray-900 border-r border-gray-200">
-                                                    {student.nome_completo}
-                                                    {student.status !== 'ATIVO' && (
-                                                        <span className={`ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded border ${student.status === 'DESISTENTE' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-green-100 text-green-700 border-green-200'}`}>
-                                                            {student.status}
-                                                        </span>
-                                                    )}
-                                                </td>
-                                                <td className="px-3 py-3 text-center text-sm text-gray-600 border-r border-gray-200">
-                                                    {student.sexo ? student.sexo[0] : '-'}
-                                                </td>
+                    {showCaderneta && (
+                        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-[98vw] max-h-[98vh] flex flex-col">
+                                <div className="flex items-center justify-between border-b px-4 py-3">
+                                    <h2 className="text-sm font-semibold">Caderneta - {selectedTurma}</h2>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => setShowStats((prev) => !prev)}
+                                            className="text-sm px-2 py-1 border rounded hover:bg-gray-50"
+                                        >
+                                            Estatística
+                                        </button>
+                                        <button
+                                            onClick={() => setShowCaderneta(false)}
+                                            className="text-sm px-2 py-1 border rounded hover:bg-gray-50"
+                                        >
+                                            Fechar
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="overflow-auto flex-1">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full border-collapse border border-gray-200">
+                                            <thead>
+                                                <tr className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
+                                                    <th className="px-4 py-3 text-center text-sm font-semibold w-12 border-r border-white/30">Nº</th>
+                                                    <th className="px-4 py-3 text-left text-sm font-semibold min-w-[200px] border-r border-white/30">Nome do Aluno</th>
+                                                    <th className="px-3 py-3 text-center text-sm font-semibold w-16 border-r border-white/30">Sexo</th>
+                                                    <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACS1</th>
+                                                    <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACS2</th>
+                                                    <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACS3</th>
+                                                    <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">MAP</th>
+                                                    <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">MACS</th>
+                                                    <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">ACP</th>
+                                                    <th className="px-3 py-3 text-center text-sm font-semibold w-44 border-r border-white/30">MT</th>
+                                                    <th className="px-3 py-3 text-center text-sm font-semibold w-44">COM</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {loading ? (
+                                                    <tr>
+                                                        <td colSpan={11} className="text-center py-12 text-gray-500">
+                                                            <div className="flex items-center justify-center gap-2">
+                                                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
+                                                                Carregando dados...
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ) : rows.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={11} className="text-center py-12 text-gray-500">
+                                                            Nenhum aluno encontrado nesta turma.
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    rows.map((student, index) => (
+                                                        <tr key={student.aluno_id} className={`transition-colors ${getStatusColor(student.status)} ${index % 2 === 0 && student.status === 'ATIVO' ? 'bg-white' : student.status === 'ATIVO' ? 'bg-gray-50' : ''} hover:bg-gray-100 border-b border-gray-200`}>
+                                                            <td className="px-4 py-3 text-center text-sm text-gray-600 border-r border-gray-200">
+                                                                {student.numero_turma ?? index + 1}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-sm font-medium text-gray-900 border-r border-gray-200">
+                                                                {student.nome_completo}
+                                                                {student.status !== 'ATIVO' && (
+                                                                    <span className={`ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded border ${student.status === 'DESISTENTE' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-green-100 text-green-700 border-green-200'}`}>
+                                                                        {student.status}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-3 py-3 text-center text-sm text-gray-600 border-r border-gray-200">
+                                                                {student.sexo ? student.sexo[0] : '-'}
+                                                            </td>
 
-                                                {renderCell(student.aluno_id, 'ACS1')}
-                                                {renderCell(student.aluno_id, 'ACS2')}
-                                                {renderCell(student.aluno_id, 'ACS3')}
-                                                {renderCell(student.aluno_id, 'MAP')}
+                                                            {renderCell(student.aluno_id, 'ACS1')}
+                                                            {renderCell(student.aluno_id, 'ACS2')}
+                                                            {renderCell(student.aluno_id, 'ACS3')}
+                                                            {renderCell(student.aluno_id, 'MAP')}
 
-                                                {renderCell(student.aluno_id, 'MACS', true)}
+                                                            {renderCell(student.aluno_id, 'MACS', true)}
 
-                                                {renderCell(student.aluno_id, 'ACP')}
+                                                            {renderCell(student.aluno_id, 'ACP')}
 
-                                                {renderCell(student.aluno_id, 'MT', true)}
-                                                {renderCell(student.aluno_id, 'COM', true)}
-                                            </tr>
-                                        ))
+                                                            {renderCell(student.aluno_id, 'MT', true)}
+                                                            {renderCell(student.aluno_id, 'COM', true)}
+                                                        </tr>
+                                                    ))
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {showStats && (
+                                        <div className="bg-white rounded-lg shadow-md overflow-hidden mb-4 mt-4">
+                                            <div className="flex items-center justify-between border-b px-4 py-3">
+                                                <h2 className="text-sm font-semibold">Estatística da Caderneta</h2>
+                                                <button
+                                                    onClick={() => setShowStats(false)}
+                                                    className="text-sm px-2 py-1 border rounded hover:bg-gray-50"
+                                                >
+                                                    Fechar
+                                                </button>
+                                            </div>
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full border-collapse border border-gray-200">
+                                                    <thead className="bg-gray-50">
+                                                        <tr>
+                                                            <th className="px-3 py-2 text-left text-sm font-semibold border-r border-gray-200">Características</th>
+                                                            <th className="px-3 py-2 text-center text-sm font-semibold border-r border-gray-200">Sexo</th>
+                                                            {['ACS1', 'ACS2', 'ACS3', 'MAP', 'MACS', 'ACP', 'MT'].map((col) => (
+                                                                <th key={col} className="px-3 py-2 text-center text-sm font-semibold border-r border-gray-200">{col}</th>
+                                                            ))}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {(() => {
+                                                            const colStats = ['ACS1', 'ACS2', 'ACS3', 'MAP', 'MACS', 'ACP', 'MT'].map((col) => ({
+                                                                id: col,
+                                                                stats: buildStats(col),
+                                                            }));
+                                                            const fmtCount = (v: number) => `${Math.round(v)}`;
+                                                            const fmtValue = (v: number) => `${v.toFixed(1)}`;
+                                                            const fmtPercent = (v: number) => `${v.toFixed(1)}%`;
+
+                                                            const renderBlock = (
+                                                                label: string,
+                                                                accessor: (s: any) => any,
+                                                                formatter: (v: number) => string
+                                                            ) => {
+                                                                const buildRow = (sexoLabel: string) => (
+                                                                    <tr key={`${label}-${sexoLabel}`} className="border-t border-gray-200">
+                                                                        {sexoLabel === 'M' && (
+                                                                            <td className="px-3 py-2 text-sm font-semibold align-middle border-r border-gray-200" rowSpan={3}>
+                                                                                {label}
+                                                                            </td>
+                                                                        )}
+                                                                        <td className="px-3 py-2 text-center text-sm font-semibold border-r border-gray-200">{sexoLabel}</td>
+                                                                        {colStats.map((col) => {
+                                                                            const stats = accessor(col.stats);
+                                                                            const value = sexoLabel === 'M'
+                                                                                ? stats.mulheres
+                                                                                : sexoLabel === 'H'
+                                                                                    ? stats.homens
+                                                                                    : stats.total;
+                                                                            return (
+                                                                                <td key={`${col.id}-${sexoLabel}`} className="px-3 py-2 text-center text-sm border-r border-gray-200">
+                                                                                    {formatter(value)}
+                                                                                </td>
+                                                                            );
+                                                                        })}
+                                                                    </tr>
+                                                                );
+
+                                                                return (
+                                                                    <>
+                                                                        {buildRow('M')}
+                                                                        {buildRow('H')}
+                                                                        {buildRow('HM')}
+                                                                    </>
+                                                                );
+                                                            };
+                                                            return (
+                                                                <>
+                                                                    {renderBlock('Alunos Avaliados', (s) => s.avaliados, fmtCount)}
+                                                                    {renderBlock('Em situação Positiva', (s) => s.positivos, fmtCount)}
+                                                                    {renderBlock('Percentagem de Positivas', (s) => s.percentPositivos, fmtPercent)}
+                                                                    {renderBlock('Em situação Negativa', (s) => s.negativos, fmtCount)}
+                                                                    {renderBlock('Percentagem de Negativas', (s) => s.percentNegativos, fmtPercent)}
+                                                                    {renderBlock('Soma das Notas', (s) => s.soma, fmtValue)}
+                                                                    {renderBlock('Nota Média', (s) => s.media, fmtValue)}
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
                                     )}
-                                </tbody>
-                            </table>
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     {canEdit && (
                         <div className="bg-white rounded-lg shadow-md p-4 flex items-center justify-between">

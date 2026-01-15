@@ -110,6 +110,14 @@ export const institutionalService = {
         const response = await api.get('/instituicoes/director/dashboard/');
         return response.data;
     },
+    getPeriodoAtual: async () => {
+        const response = await api.get('/instituicoes/director/periodo_atual/');
+        return response.data;
+    },
+    definirPeriodo: async (payload: { current_ano_letivo: number; current_trimestre: number }) => {
+        const response = await api.post('/instituicoes/director/definir_periodo/', payload);
+        return response.data;
+    },
     toggleSchoolLock: async (lock?: boolean) => {
         const payload = lock !== undefined ? { bloquear: lock } : {};
         const response = await api.post('/instituicoes/director/bloquear_escola/', payload);
@@ -335,11 +343,60 @@ export const reportService = {
         const response = await api.get('/academico/relatorios/declaracao_aluno/', { params });
         return response.data;
     },
+    getClassReportXlsx: async (params: { turma_id: number; disciplina_id: number }) => {
+        const response = await api.get('/academico/relatorios/pauta_turma_xlsx/', {
+            params,
+            responseType: 'blob',
+        });
+        return response.data;
+    },
+    getClassReportGeneralXlsx: async (params: { turma_id: number; trimestre: number }) => {
+        const response = await api.get('/academico/relatorios/pauta_turma_geral_xlsx/', {
+            params,
+            responseType: 'blob',
+        });
+        return response.data;
+    },
+    getStudentDeclarationXlsx: async (params: { aluno_id: number }) => {
+        const response = await api.get('/academico/relatorios/declaracao_aluno_xlsx/', {
+            params,
+            responseType: 'blob',
+        });
+        return response.data;
+    },
+    getStudentSituationXlsx: async (params: { aluno_id: number }) => {
+        const response = await api.get('/academico/relatorios/situacao_academica_xlsx/', {
+            params,
+            responseType: 'blob',
+        });
+        return response.data;
+    },
+    getStudentsListXlsx: async (params: { turma_id: number }) => {
+        const response = await api.get('/academico/relatorios/lista_alunos_turma_xlsx/', {
+            params,
+            responseType: 'blob',
+        });
+        return response.data;
+    },
+    getAprovadosReprovadosXlsx: async (params: { turma_id: number; trimestre: number }) => {
+        const response = await api.get('/academico/relatorios/aprovados_reprovados_turma_xlsx/', {
+            params,
+            responseType: 'blob',
+        });
+        return response.data;
+    },
+    getCadernetaXlsx: async (params: { turma_id: number; disciplina_id: number; ano_letivo: number }) => {
+        const response = await api.get('/avaliacoes/caderneta/xlsx/', {
+            params,
+            responseType: 'blob',
+        });
+        return response.data;
+    },
 };
 
 export const academicRoleService = {
-    getDTMinhaTurma: async () => {
-        const response = await api.get('/academico/director-turma/minha_turma/');
+    getDTMinhaTurma: async (params?: { trimestre?: number }) => {
+        const response = await api.get('/academico/director-turma/minha_turma/', { params });
         return response.data;
     },
     getDTDetalhes: async () => {

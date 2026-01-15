@@ -56,7 +56,7 @@ const MinhaClasse: React.FC = () => {
                                         <Button
                                             variant="outline-primary"
                                             className="w-100 d-flex justify-content-between align-items-center"
-                                            onClick={() => navigate(`/professor/ver-pauta/${turma.id}`)}
+                                            onClick={() => navigate(`/relatorios?turma_id=${turma.id}`)}
                                         >
                                             Ver Pauta
                                             <FaArrowRight />
