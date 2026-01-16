@@ -14,6 +14,8 @@ Incluindo outro URLconf
     1. Importe a função include(): from django.urls import include, path
     2. Adicione um URL a urlpatterns:  path('blog/', include('blog.urls'))
 """
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
 
@@ -25,4 +27,8 @@ urlpatterns = [
     path('api/academico/', include('salamandra_sge.academico.urls')),
     path('api/administrativo/', include('salamandra_sge.administrativo.urls', namespace='administrativo')),
     path('api/avaliacoes/', include('salamandra_sge.avaliacoes.urls', namespace='avaliacoes')),
+    path('api/', include('salamandra_sge.documentos.urls')),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

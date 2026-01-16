@@ -5,6 +5,7 @@ import MainLayout from './components/Layout/MainLayout';
 import Login from './pages/Login/Login';
 import AdminGeral from './pages/Admin/AdminGeral';
 import MeuPerfil from './pages/Profile/MeuPerfil';
+import CompletarPerfil from './pages/Profile/CompletarPerfil';
 import Reports from './pages/Reports/Reports';
 
 // Dashboards
@@ -84,6 +85,7 @@ function App() {
             {/* Comum */}
             <Route path="relatorios" element={<Reports />} />
             <Route path="meu-perfil" element={<MeuPerfil />} />
+            <Route path="professor/completar-perfil" element={<CompletarPerfil />} />
             <Route path="dashboard" element={<Navigate to="/" replace />} />
           </Route>
 

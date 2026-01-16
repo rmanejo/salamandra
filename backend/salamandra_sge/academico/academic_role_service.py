@@ -105,7 +105,7 @@ class AcademicRoleService:
         return AcademicRoleService._get_turma_aprovacao_stats(turma, trimestre=trimestre)
 
     @staticmethod
-    def get_classe_stats(classe, school):
+    def get_classe_stats(classe, school, trimestre=None):
         """
         Estatísticas por classe: aproveitamento por turma e global.
         """
@@ -114,10 +114,12 @@ class AcademicRoleService:
         total_alunos_classe = 0
         total_aprovados_classe = 0
         total_pendentes_classe = 0
+        total_aprovados_homens = 0
+        total_aprovados_mulheres = 0
         percentagens_turmas = []
 
         for turma in turmas:
-            t_stats = AcademicRoleService.get_turma_stats(turma)
+            t_stats = AcademicRoleService.get_turma_stats(turma, trimestre=trimestre)
             stats_turmas.append({
                 "turma": turma.nome,
                 "stats": t_stats
@@ -125,6 +127,8 @@ class AcademicRoleService:
             total_alunos_classe += t_stats['total_alunos']
             total_aprovados_classe += t_stats['aprovados']['total']
             total_pendentes_classe += t_stats.get('pendentes', {}).get('total', 0)
+            total_aprovados_homens += t_stats.get('aprovados', {}).get('homens', 0)
+            total_aprovados_mulheres += t_stats.get('aprovados', {}).get('mulheres', 0)
             if t_stats['total_alunos'] > 0:
                 percentagens_turmas.append((t_stats['aprovados']['total'] / t_stats['total_alunos']) * 100)
             else:
@@ -155,6 +159,9 @@ class AcademicRoleService:
             "total_turmas": turmas.count(),
             "total_alunos": total_alunos_classe,
             "pendentes": total_pendentes_classe,
+            "aprovados_total": total_aprovados_classe,
+            "aprovados_homens": total_aprovados_homens,
+            "aprovados_mulheres": total_aprovados_mulheres,
             "media_global": media_global,
             "percentagem_aprovacao": percentagem_aprovacao,
             "por_turma": stats_turmas,
@@ -283,19 +290,21 @@ class AcademicRoleService:
         }
 
     @staticmethod
-    def get_classe_turmas(classe, school):
+    def get_classe_turmas(classe, school, trimestre=None):
         """
         Lista turmas da classe para o CC.
         """
         turmas = Turma.objects.filter(classe=classe, school=school)
         data = []
         for t in turmas:
-            stats = AcademicRoleService.get_turma_stats(t)
+            stats = AcademicRoleService.get_turma_stats(t, trimestre=trimestre)
             data.append({
                 "id": t.id,
                 "nome": t.nome,
                 "ano_letivo": t.ano_letivo,
                 "total_alunos": stats['total_alunos'],
+                "aprovados": stats.get("aprovados", {}).get("total", 0),
+                "percentagem_aprovacao": stats.get("percentagem_aprovacao", {}).get("total", 0),
                 "media": 0, # Placeholder, calculation is expensive
                 "director_turma": t.director_turma.professor.user.get_full_name() if hasattr(t, 'director_turma') else "-"
             })

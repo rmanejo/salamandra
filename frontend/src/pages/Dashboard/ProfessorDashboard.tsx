@@ -26,7 +26,9 @@ const ProfessorDashboard: React.FC = () => {
 
                 // Fetch CC Data
                 try {
-                    const cc = await academicRoleService.getCCResumoClasse();
+                    const cc = await academicRoleService.getCCResumoClasse(
+                        trimestre ? { trimestre } : undefined
+                    );
                     if (Array.isArray(cc)) setCcData(cc);
                 } catch (e) {
                     // Ignore if not CC
@@ -148,16 +150,10 @@ const ProfessorDashboard: React.FC = () => {
                                         <Card.Body>
                                             <h6 className="text-muted small text-uppercase">Total Alunos</h6>
                                             <h3 className="fw-bold mb-0">{cc.total_alunos || 0}</h3>
-                                        </Card.Body>
-                                    </Card>
-                                </Col>
-                                <Col md={3}>
-                                    <Card className="shadow-sm border-0 text-center py-3">
-                                        <Card.Body>
-                                            <h6 className="text-muted small text-uppercase">Média Global</h6>
-                                            <h3 className="fw-bold mb-0 text-primary">
-                                                {cc.media_global?.toFixed(1) || '0.0'}
-                                            </h3>
+                                            <div className="text-muted small mt-1">
+                                                H: {cc.por_turma?.reduce((sum: number, t: any) => sum + (t.stats?.homens || 0), 0) || 0} |
+                                                M: {cc.por_turma?.reduce((sum: number, t: any) => sum + (t.stats?.mulheres || 0), 0) || 0}
+                                            </div>
                                         </Card.Body>
                                     </Card>
                                 </Col>
@@ -165,13 +161,60 @@ const ProfessorDashboard: React.FC = () => {
                                     <Card className="shadow-sm border-0 text-center py-3">
                                         <Card.Body>
                                             <h6 className="text-muted small text-uppercase">Aprovados</h6>
-                                            <h3 className="fw-bold mb-0 text-success">
+                                            <h3 className="fw-bold mb-0 text-success">{cc.aprovados_total || 0}</h3>
+                                            <div className="text-muted small mt-1">
+                                                H: {cc.aprovados_homens || 0} | M: {cc.aprovados_mulheres || 0}
+                                            </div>
+                                        </Card.Body>
+                                    </Card>
+                                </Col>
+                                <Col md={3}>
+                                    <Card className="shadow-sm border-0 text-center py-3">
+                                        <Card.Body>
+                                            <h6 className="text-muted small text-uppercase">Aproveitamento</h6>
+                                            <h3 className="fw-bold mb-0 text-primary">
                                                 {cc.percentagem_aprovacao?.toFixed(1) || 0}%
                                             </h3>
                                         </Card.Body>
                                     </Card>
                                 </Col>
                             </Row>
+                            {cc.por_turma?.length > 0 && (
+                                <Row className="g-2 mt-2">
+                                    {cc.por_turma.map((turma: any, turmaIdx: number) => (
+                                        <Col md={5} key={turmaIdx}>
+                                            <Card className="shadow-sm border-0 h-100" style={{ minHeight: '220px' }}>
+                                                <Card.Body className="p-4">
+                                                    <h6 className="text-uppercase text-muted small mb-2">
+                                                        Turma {turma.turma}
+                                                    </h6>
+                                                    <div style={{ display: 'grid', width: '100%', gridTemplateColumns: '1fr 56px 56px 72px', columnGap: '8px', rowGap: '6px' }}>
+                                                        <span className="text-muted small"></span>
+                                                        <span className="text-muted small text-center">H</span>
+                                                        <span className="text-muted small text-center">M</span>
+                                                        <span className="text-muted small text-center">HM</span>
+
+                                                        <span>Total</span>
+                                                        <span className="text-center">{turma.stats?.homens || 0}</span>
+                                                        <span className="text-center">{turma.stats?.mulheres || 0}</span>
+                                                        <strong className="text-center">{turma.stats?.total_alunos || 0}</strong>
+
+                                                        <span>Aprovados</span>
+                                                        <span className="text-center">{turma.stats?.aprovados?.homens || 0}</span>
+                                                        <span className="text-center">{turma.stats?.aprovados?.mulheres || 0}</span>
+                                                        <strong className="text-center">{turma.stats?.aprovados?.total || 0}</strong>
+
+                                                        <span>Aproveitamento</span>
+                                                        <span className="text-center">{turma.stats?.percentagem_aprovacao?.homens?.toFixed(1) || '0.0'}%</span>
+                                                        <span className="text-center">{turma.stats?.percentagem_aprovacao?.mulheres?.toFixed(1) || '0.0'}%</span>
+                                                        <strong className="text-center">{turma.stats?.percentagem_aprovacao?.total?.toFixed(1) || '0.0'}%</strong>
+                                                    </div>
+                                                </Card.Body>
+                                            </Card>
+                                        </Col>
+                                    ))}
+                                </Row>
+                            )}
                         </div>
                     ))}
                 </div>

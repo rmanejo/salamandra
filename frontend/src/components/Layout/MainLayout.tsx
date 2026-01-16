@@ -1,14 +1,37 @@
-import React from 'react';
-import { Outlet } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import './MainLayout.css';
 import { Alert } from 'react-bootstrap';
 import { useAuth } from '../../context/AuthContext';
+import { profileService } from '../../services/api';
 
 const MainLayout: React.FC = () => {
     const { user } = useAuth();
     const isBlocked = user?.school_blocked && user?.role !== 'ADMIN_SISTEMA' && user?.role !== 'ADMIN_ESCOLA';
+    const navigate = useNavigate();
+    const location = useLocation();
+
+    useEffect(() => {
+        const ensureProfileComplete = async () => {
+            if (!user || user.role !== 'PROFESSOR') {
+                return;
+            }
+            if (location.pathname === '/professor/completar-perfil') {
+                return;
+            }
+            try {
+                const status = await profileService.getProfileStatus();
+                if (!status.is_complete) {
+                    navigate('/professor/completar-perfil', { replace: true });
+                }
+            } catch (err) {
+                console.error('Erro ao verificar perfil profissional', err);
+            }
+        };
+        ensureProfileComplete();
+    }, [user, navigate, location.pathname]);
 
     return (
         <div className="main-layout d-flex">

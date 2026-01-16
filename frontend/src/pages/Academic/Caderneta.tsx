@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { academicService, evaluationService } from '../../services/api';
+import { academicService, evaluationService, documentService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 interface GradeObject {
     valor: number | null;
@@ -61,11 +62,14 @@ const Caderneta: React.FC = () => {
     const [selectedAno, setSelectedAno] = useState<number>(new Date().getFullYear());
     const [showStats, setShowStats] = useState(false);
     const [showCaderneta, setShowCaderneta] = useState(false);
+    const [downloading, setDownloading] = useState(false);
 
     // State to determine if the user can actually edit the current selection
     const [canEdit, setCanEdit] = useState(false);
     const [periodInitialized, setPeriodInitialized] = useState(false);
     const { user } = useAuth();
+    const navigate = useNavigate();
+    const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -171,6 +175,47 @@ const Caderneta: React.FC = () => {
             console.error("Error loading gradebook", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDownloadCadernetaOficial = async () => {
+        if (!selectedTurma || !selectedDisciplina) {
+            alert('Selecione uma turma e disciplina antes de baixar.');
+            return;
+        }
+
+        setDownloading(true);
+        try {
+            const result = await documentService.generateCaderneta({
+                turma_id: Number(selectedTurma),
+                disciplina_id: Number(selectedDisciplina),
+                trimestre: selectedTrimestre,
+                ano_lectivo: selectedAno,
+            });
+
+            const docs = result.documents || (result.document_id ? [result] : []);
+            docs.forEach((doc: any) => {
+                const url = `${apiBaseUrl}/documentos/${doc.document_id}/download/`;
+                const link = document.createElement('a');
+                link.href = url;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+        } catch (error: any) {
+            console.error('Erro ao gerar caderneta oficial', error);
+            const status = error?.response?.status;
+            const detail = error?.response?.data?.detail;
+            if (status === 403 && detail?.toLowerCase().includes('perfil')) {
+                navigate('/professor/completar-perfil');
+                return;
+            }
+            const message = detail || 'Erro ao gerar caderneta oficial.';
+            alert(message);
+        } finally {
+            setDownloading(false);
         }
     };
 
@@ -568,6 +613,19 @@ const Caderneta: React.FC = () => {
                         disabled={!canEdit}
                     />
                 </div>
+            </div>
+            <div className="flex justify-end mb-6">
+                <button
+                    onClick={handleDownloadCadernetaOficial}
+                    disabled={!selectedTurma || !selectedDisciplina || downloading}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                        !selectedTurma || !selectedDisciplina || downloading
+                            ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    }`}
+                >
+                    {downloading ? 'A gerar...' : 'Baixar Caderneta Oficial'}
+                </button>
             </div>
 
             {selectedTurma && selectedDisciplina ? (

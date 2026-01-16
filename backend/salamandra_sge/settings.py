@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'salamandra_sge.avaliacoes',
     'salamandra_sge.administrativo',
     'salamandra_sge.auditoria',
+    'salamandra_sge.documentos',
 ]
 
 MIDDLEWARE = [
@@ -137,6 +138,8 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 # Configuração para WhiteNoise servir arquivos estáticos em produção
 # MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')

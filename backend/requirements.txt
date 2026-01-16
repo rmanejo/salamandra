@@ -11,3 +11,4 @@ redis
 django-redis
 flower
 openpyxl
+Pillow

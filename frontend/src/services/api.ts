@@ -326,6 +326,37 @@ export const evaluationService = {
     },
 };
 
+export const documentService = {
+    generateCaderneta: async (payload: {
+        turma_id: number;
+        disciplina_id: number;
+        trimestre: number;
+        ano_lectivo?: number;
+    }) => {
+        const response = await api.post('/documentos/caderneta/gerar/', payload);
+        return response.data;
+    },
+};
+
+export const profileService = {
+    getProfileStatus: async () => {
+        const response = await api.get('/me/profile-status/');
+        return response.data;
+    },
+    getProfile: async () => {
+        const response = await api.get('/me/profile/');
+        return response.data;
+    },
+    updateProfile: async (payload: FormData) => {
+        const response = await api.patch('/me/profile/', payload, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
+        return response.data;
+    },
+};
+
 export const reportService = {
     getClassReport: async (params: { turma_id: number; disciplina_id: number }) => {
         const response = await api.get('/academico/relatorios/pauta_turma/', { params });
@@ -423,12 +454,12 @@ export const academicRoleService = {
         const response = await api.get('/academico/director-turma/alunos/');
         return response.data;
     },
-    getCCResumoClasse: async () => {
-        const response = await api.get('/academico/coordenador-classe/resumo_classe/');
+    getCCResumoClasse: async (params?: { trimestre?: number }) => {
+        const response = await api.get('/academico/coordenador-classe/resumo_classe/', { params });
         return response.data;
     },
-    getCCTurmas: async () => {
-        const response = await api.get('/academico/coordenador-classe/turmas_classe/');
+    getCCTurmas: async (params?: { trimestre?: number }) => {
+        const response = await api.get('/academico/coordenador-classe/turmas_classe/', { params });
         return response.data;
     },
     getDDResumoDisciplina: async () => {

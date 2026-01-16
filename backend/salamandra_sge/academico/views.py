@@ -793,19 +793,31 @@ class CoordenadorClasseViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['get'])
     def resumo_classe(self, request):
+        trimestre = request.query_params.get('trimestre') or request.user.school.current_trimestre
         ccs = CoordenadorClasse.objects.filter(professor__user=request.user)
         resumo = []
         for cc in ccs:
-            resumo.append(AcademicRoleService.get_classe_stats(cc.classe, request.user.school))
+            resumo.append(
+                AcademicRoleService.get_classe_stats(
+                    cc.classe,
+                    request.user.school,
+                    trimestre=trimestre,
+                )
+            )
         return Response(resumo)
 
     @action(detail=False, methods=['get'])
     def turmas_classe(self, request):
         # Assumindo que pode coordenar mais de uma classe, ou retorna da primeira
+        trimestre = request.query_params.get('trimestre') or request.user.school.current_trimestre
         ccs = CoordenadorClasse.objects.filter(professor__user=request.user)
         data = []
         for cc in ccs:
-            turmas_data = AcademicRoleService.get_classe_turmas(cc.classe, request.user.school)
+            turmas_data = AcademicRoleService.get_classe_turmas(
+                cc.classe,
+                request.user.school,
+                trimestre=trimestre,
+            )
             data.append({
                 "classe": cc.classe.nome,
                 "turmas": turmas_data
